@@ -134,7 +134,7 @@ function renderPinBannerHtml(session) {
           ${isNew ? '<span class="pin-banner-welcome">Welcome! Your PIN is</span>' : '<span class="pin-banner-welcome">Your PIN</span>'}
           <span class="pin-banner-code">${escapeHtml(session.pin)}</span>
         </div>
-        <p class="pin-banner-note">Remember this PIN — you'll need it to sign back in before you lock your roster.</p>
+        <p class="pin-banner-note">Remember this PIN — you'll need it to sign back in.</p>
       </div>
     </div>
   `;
@@ -263,7 +263,7 @@ function mountBoard() {
 
       <div class="selection-board ${readonly ? 'board-readonly' : ''}">
         <div class="board-header">
-          <h2>The Master Selection Board</h2>
+          <h2>Select 6 Teams (2 from each Tier)</h2>
           <p>${readonly ? 'Your roster is locked — no further changes allowed.' : 'Tap teams to add or remove. Conflicts are blocked automatically.'}</p>
         </div>
         ${[1, 2, 3].map((tier) => renderTierSection(tier, draftPicks, readonly)).join('')}
