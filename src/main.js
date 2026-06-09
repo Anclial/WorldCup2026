@@ -1,12 +1,7 @@
 import { fetchData, join, submitRoster } from './api.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
 import { WIN_ODDS_RANK } from './data/odds.js';
-import {
-  GROUP_STAGE_POINTS,
-  KNOCKOUT_MULTIPLIERS,
-  KNOCKOUT_ROUNDS,
-  getTierScoringSummary,
-} from './data/scoring.js';
+import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS } from './data/scoring.js';
 import { RULES, TEAM_BY_ID, TIERS } from './data/teams.js';
 import {
   getDisableReason,
@@ -219,6 +214,34 @@ function renderPinBannerHtml(session) {
   `;
 }
 
+function renderPinBannerSlot() {
+  const slot = $('#pin-banner-slot');
+  if (!slot) return;
+  const html = renderPinBannerHtml(getSession());
+  if (!html) {
+    slot.classList.add('hidden');
+    slot.innerHTML = '';
+    return;
+  }
+  slot.classList.remove('hidden');
+  slot.innerHTML = html;
+}
+
+function updateBoardHeaderBar() {
+  const slot = $('#board-header-slot');
+  if (!slot) return;
+
+  const session = getSession();
+  const playerLocked = session ? isRosterLocked(session.playerId) : false;
+  const globallyLocked = appData.entriesLocked;
+  const readonly = playerLocked || globallyLocked;
+
+  slot.innerHTML = `
+    <h2>Select 6 Teams (2 from each Tier)</h2>
+    <p>${readonly ? 'Your roster is locked — no further changes allowed.' : 'Tap teams to add or remove. Conflicts are blocked automatically.'}</p>
+  `;
+}
+
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -232,6 +255,7 @@ function enterApp(player) {
   $('#login-section').classList.add('hidden');
   $('#tabs').classList.remove('hidden');
   renderUserBar(player);
+  renderPinBannerSlot();
 
   const locked = isRosterLocked(player.playerId);
   if (locked) {
@@ -282,6 +306,7 @@ async function switchTab(tab) {
   });
 
   $('#board-section').classList.toggle('hidden', tab !== 'board');
+  $('#board-header-slot').classList.toggle('hidden', tab !== 'board');
   $('#leaderboard-section').classList.toggle('hidden', tab !== 'leaderboard');
   $('#everyone-section').classList.toggle('hidden', tab !== 'everyone');
   $('#rules-section').classList.toggle('hidden', tab !== 'rules');
@@ -312,15 +337,15 @@ function renderOdds() {
         Teams higher on this list are expected to do better than teams lower on the list.
       </p>
       <ol class="odds-list">
-        ${WIN_ODDS_RANK.map((teamId, i) => {
-          const team = TEAM_BY_ID[teamId];
+        ${WIN_ODDS_RANK.map((entry, i) => {
+          const team = TEAM_BY_ID[entry.id];
           if (!team) return '';
           return `
-          <li class="odds-item ${TIERS[team.tier].color}">
+          <li class="odds-item">
             <span class="odds-rank">${i + 1}</span>
             <span class="odds-team">
               <span class="odds-name">${escapeHtml(team.name)}</span>
-              <span class="odds-meta">Group ${team.group} · ${TIERS[team.tier].label}</span>
+              <span class="odds-meta">${escapeHtml(entry.odds)}</span>
             </span>
           </li>`;
         }).join('')}
@@ -360,14 +385,6 @@ function mountBoard() {
   section.innerHTML = `
     ${globallyLocked && !playerLocked ? '<div class="locked-banner">🔒 Entries are closed — rosters can no longer be submitted.</div>' : ''}
     <div class="board-layout ${readonly ? 'board-readonly' : ''}">
-      <div class="pin-slot">${renderPinBannerHtml(session)}</div>
-      <div class="board-header">
-        <h2>Select 6 Teams (2 from each Tier)</h2>
-        <p>${readonly ? 'Your roster is locked — no further changes allowed.' : 'Tap teams to add or remove. Conflicts are blocked automatically.'}</p>
-      </div>
-      <div class="lock-warning-slot">
-        ${!playerLocked && !globallyLocked ? '<div class="lock-warning"></div>' : ''}
-      </div>
       <aside class="roster-panel card">
         <h2>Your Roster</h2>
         <p class="roster-sub">Exactly 6 teams · max 1 per group</p>
@@ -385,6 +402,7 @@ function mountBoard() {
     </div>
   `;
 
+  updateBoardHeaderBar();
   updateBoard();
 }
 
@@ -424,13 +442,7 @@ function updateBoard() {
     }
   }
 
-  const warningEl = section.querySelector('.lock-warning');
-  if (warningEl) {
-    warningEl.innerHTML = `
-      <p><strong>⚠️ One-time lock</strong></p>
-      <p>Once you click <strong>Lock in roster</strong>, your picks are final and cannot be changed. Fill every slot before locking in.</p>
-    `;
-  }
+  updateBoardHeaderBar();
 
   [1, 2, 3].forEach((tier) => {
     const countEl = section.querySelector(`[data-tier="${tier}"] .tier-count`);
@@ -532,6 +544,7 @@ async function onSubmitRoster() {
     );
     showToast('Roster locked!');
     renderUserBar(getSession());
+    renderPinBannerSlot();
     boardMounted = false;
     renderBoard();
   } catch (err) {
@@ -590,7 +603,7 @@ function renderTierSection(tier, selectedIds, locked) {
         <div>
           <span class="tier-badge">${meta.label}</span>
           <h3>${meta.name}</h3>
-          <p class="tier-scoring-hint">${getTierScoringSummary(tier)}</p>
+          <p class="tier-scoring-hint">(The further your teams go the better, see rules)</p>
         </div>
         <div class="tier-meta">
           <span class="tier-multiplier">${meta.multiplier} knockout</span>

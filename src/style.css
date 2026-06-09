@@ -426,29 +426,44 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+/* App chrome above board */
+
+.pin-banner-slot {
+  margin-bottom: 1rem;
+}
+
+.pin-banner-slot .pin-banner {
+  border-radius: var(--radius);
+}
+
+.board-header-bar {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.board-header-bar h2 {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+.board-header-bar p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 /* Board layout */
 
 .board-layout {
   display: grid;
   grid-template-columns: 300px 1fr;
-  grid-template-areas:
-    "pin header"
-    "warning header"
-    "roster tiers";
-  gap: 0.75rem 1.5rem;
+  grid-template-areas: "roster tiers";
+  gap: 1.5rem;
   align-items: start;
-}
-
-.pin-slot {
-  grid-area: pin;
-}
-
-.board-header {
-  grid-area: header;
-}
-
-.lock-warning-slot {
-  grid-area: warning;
 }
 
 .roster-panel {
@@ -466,9 +481,6 @@ body {
   .board-layout {
     grid-template-columns: 1fr;
     grid-template-areas:
-      "pin"
-      "header"
-      "warning"
       "tiers"
       "roster";
   }
@@ -592,28 +604,6 @@ body {
   font-weight: 600;
 }
 
-.lock-warning {
-  background: #ff6b6b14;
-  border: 1px solid #ff6b6b44;
-  border-radius: var(--radius-sm);
-  padding: 0.75rem 0.85rem;
-  margin-bottom: 0;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-
-.lock-warning p {
-  margin: 0;
-}
-
-.lock-warning p + p {
-  margin-top: 0.35rem;
-}
-
-.lock-warning strong {
-  color: var(--danger);
-}
-
 .pin-banner {
   margin-bottom: 0;
   padding: 1rem 1.1rem;
@@ -672,18 +662,6 @@ body {
 
 /* Selection board */
 
-.board-header h2 {
-  margin: 0 0 0.25rem;
-  font-family: var(--font-display);
-  font-weight: 400;
-}
-
-.board-header p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-
 .tier-section {
   margin-bottom: 0;
   padding: 1.25rem;
@@ -724,7 +702,7 @@ body {
   margin: 0.25rem 0 0;
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--text-muted);
   line-height: 1.35;
 }
 
@@ -1048,15 +1026,6 @@ body {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
-  border-left: 3px solid var(--border);
-}
-
-.odds-item.tier-1 { border-left-color: var(--gold); }
-.odds-item.tier-2 { border-left-color: var(--blue); }
-.odds-item.tier-3 { border-left-color: var(--emerald); }
-
-.odds-item:nth-child(-n + 3) {
-  background: linear-gradient(90deg, var(--accent-dim), var(--bg-elevated));
 }
 
 .odds-rank {
@@ -1066,10 +1035,6 @@ body {
   min-width: 1.75rem;
   font-variant-numeric: tabular-nums;
 }
-
-.odds-item:nth-child(1) .odds-rank { color: var(--gold); }
-.odds-item:nth-child(2) .odds-rank { color: #c0c8d4; }
-.odds-item:nth-child(3) .odds-rank { color: #cd7f32; }
 
 .odds-team {
   display: flex;
@@ -1084,8 +1049,10 @@ body {
 }
 
 .odds-meta {
-  font-size: 0.72rem;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .multiplier-grid {
