@@ -1,4 +1,4 @@
-import { fetchData, login, submitRoster } from './api.js';
+import { fetchData, join, submitRoster } from './api.js';
 import { RULES, TEAM_BY_ID, TIERS } from './data/teams.js';
 import {
   getDisableReason,
@@ -8,13 +8,13 @@ import {
   togglePick,
   validateRoster,
 } from './selection.js';
-import { clearSession, getSession, setSession } from './state.js';
+import { clearDraft, clearSession, getDraft, getSession, saveDraft, setSession } from './state.js';
 
 const $ = (sel) => document.querySelector(sel);
 
 let activeTab = 'board';
 let draftPicks = [];
-let appData = { players: [], rosters: {}, standings: [], entriesLocked: false };
+let appData = { players: [], rosters: {}, rosterLocked: {}, standings: [], entriesLocked: false };
 let isSaving = false;
 let boardMounted = false;
 let boardClickBound = false;
@@ -27,13 +27,15 @@ async function init() {
 
   try {
     await loadData();
-    populatePlayerSelect();
 
     const session = getSession();
     if (session) {
       const stillValid = appData.players.some((p) => p.playerId === session.playerId);
       if (stillValid) {
-        enterApp(session);
+        enterApp({
+          ...session,
+          rosterLocked: isRosterLocked(session.playerId),
+        });
       } else {
         clearSession();
         showLogin();
@@ -53,25 +55,19 @@ async function loadData() {
   const data = await fetchData();
   appData = {
     players: data.players || [],
-    rosters: rostersToMap(data.rosters || []),
+    rosters: {},
+    rosterLocked: {},
     standings: data.standings || [],
     entriesLocked: !!data.entriesLocked,
   };
-}
-
-function rostersToMap(rosters) {
-  const map = {};
-  rosters.forEach((r) => {
-    map[r.playerId] = r.teamIds || [];
+  (data.rosters || []).forEach((r) => {
+    appData.rosters[r.playerId] = r.teamIds || [];
+    appData.rosterLocked[r.playerId] = !!r.locked;
   });
-  return map;
 }
 
-function populatePlayerSelect() {
-  const select = $('#player-select');
-  select.innerHTML =
-    '<option value="">Choose your name…</option>' +
-    appData.players.map((p) => `<option value="${p.playerId}">${p.name}</option>`).join('');
+function isRosterLocked(playerId) {
+  return !!appData.rosterLocked[playerId] || appData.entriesLocked;
 }
 
 function bindEvents() {
@@ -82,18 +78,32 @@ function bindEvents() {
 async function onLogin(e) {
   e.preventDefault();
   hideError();
+  hidePinReveal();
 
-  const playerId = $('#player-select').value;
-  const pin = $('#pin-input').value;
-  if (!playerId || !pin) return;
+  const name = $('#name-input').value.trim();
+  const pin = $('#pin-input').value.trim();
+  if (!name) return;
 
   const btn = e.target.querySelector('button[type="submit"]');
   btn.disabled = true;
 
   try {
-    const { player } = await login(playerId, pin);
-    setSession(player, pin);
-    enterApp({ ...player, pin });
+    const result = await join(name, pin);
+    setSession(result.player, pin || result.pin, {
+      rosterLocked: !!result.rosterLocked,
+    });
+
+    if (result.isNew) {
+      showPinReveal(result.pin, result.player.name);
+      setSession(result.player, result.pin, { rosterLocked: false });
+      enterApp({ ...result.player, pin: result.pin, rosterLocked: false });
+    } else {
+      enterApp({
+        ...result.player,
+        pin,
+        rosterLocked: !!result.rosterLocked,
+      });
+    }
   } catch (err) {
     showError(err.message);
   } finally {
@@ -101,11 +111,43 @@ async function onLogin(e) {
   }
 }
 
+function showPinReveal(pin, name) {
+  const el = $('#pin-reveal');
+  el.classList.remove('hidden');
+  el.innerHTML = `
+    <p><strong>Welcome, ${escapeHtml(name)}!</strong> Your PIN is:</p>
+    <p class="pin-code">${escapeHtml(pin)}</p>
+    <p class="pin-note">Save this PIN — you'll need it to sign back in before you lock your roster.</p>
+  `;
+}
+
+function hidePinReveal() {
+  $('#pin-reveal').classList.add('hidden');
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function enterApp(player) {
   $('#login-section').classList.add('hidden');
   $('#tabs').classList.remove('hidden');
   renderUserBar(player);
-  draftPicks = [...(appData.rosters[player.playerId] || [])];
+
+  const locked = isRosterLocked(player.playerId);
+  if (locked) {
+    draftPicks = [...(appData.rosters[player.playerId] || [])];
+  } else {
+    const saved = appData.rosters[player.playerId] || [];
+    const draft = getDraft(player.playerId);
+    draftPicks = draft.length ? [...draft] : [...saved];
+  }
+
+  boardMounted = false;
   switchTab('board');
 }
 
@@ -156,7 +198,7 @@ async function switchTab(tab) {
 async function refreshData() {
   await loadData();
   const session = getSession();
-  if (session) {
+  if (session && isRosterLocked(session.playerId)) {
     draftPicks = [...(appData.rosters[session.playerId] || draftPicks)];
   }
 }
@@ -175,11 +217,14 @@ function renderBoard() {
 }
 
 function mountBoard() {
-  const locked = appData.entriesLocked;
+  const session = getSession();
+  const playerLocked = session ? isRosterLocked(session.playerId) : false;
+  const globallyLocked = appData.entriesLocked;
+  const readonly = playerLocked || globallyLocked;
   const section = $('#board-section');
 
   section.innerHTML = `
-    ${locked ? '<div class="locked-banner">🔒 Entries are locked — rosters can no longer be changed.</div>' : ''}
+    ${globallyLocked && !playerLocked ? '<div class="locked-banner">🔒 Entries are closed — rosters can no longer be submitted.</div>' : ''}
     <div class="board-layout">
       <aside class="roster-panel card">
         <h2>Your Roster</h2>
@@ -187,22 +232,19 @@ function mountBoard() {
         <div class="roster-slots"></div>
         <div class="tier-progress"></div>
         <div class="roster-validation"></div>
-        ${
-          locked
-            ? ''
-            : `<div class="roster-actions">
-          <button type="button" id="clear-picks" class="btn btn-ghost">Clear all</button>
+        ${!playerLocked && !globallyLocked ? '<div class="lock-warning"></div>' : ''}
+        <div class="roster-actions">
+          ${!readonly ? '<button type="button" id="clear-picks" class="btn btn-ghost">Clear all</button>' : ''}
           <button type="button" id="submit-picks" class="btn btn-primary">Lock in roster</button>
-        </div>`
-        }
+        </div>
       </aside>
 
-      <div class="selection-board ${locked ? 'board-readonly' : ''}">
+      <div class="selection-board ${readonly ? 'board-readonly' : ''}">
         <div class="board-header">
           <h2>The Master Selection Board</h2>
-          <p>${locked ? 'Viewing your locked roster.' : 'Tap teams to add or remove. Conflicts are blocked automatically.'}</p>
+          <p>${readonly ? 'Your roster is locked — no further changes allowed.' : 'Tap teams to add or remove. Conflicts are blocked automatically.'}</p>
         </div>
-        ${[1, 2, 3].map((tier) => renderTierSection(tier, draftPicks, locked)).join('')}
+        ${[1, 2, 3].map((tier) => renderTierSection(tier, draftPicks, readonly)).join('')}
       </div>
     </div>
   `;
@@ -211,9 +253,12 @@ function mountBoard() {
 }
 
 function updateBoard() {
+  const session = getSession();
   const validation = validateRoster(draftPicks);
   const counts = getTierCounts(draftPicks);
-  const locked = appData.entriesLocked;
+  const playerLocked = session ? isRosterLocked(session.playerId) : false;
+  const globallyLocked = appData.entriesLocked;
+  const readonly = playerLocked || globallyLocked;
   const section = $('#board-section');
 
   const slotsEl = section.querySelector('.roster-slots');
@@ -234,9 +279,21 @@ function updateBoard() {
 
   const validationEl = section.querySelector('.roster-validation');
   if (validationEl) {
-    validationEl.innerHTML = validation.errors.length
-      ? `<ul class="validation-list">${validation.errors.map((e) => `<li>${e}</li>`).join('')}</ul>`
-      : '<p class="validation-ok">Roster complete — ready to submit!</p>';
+    if (playerLocked) {
+      validationEl.innerHTML = '<p class="validation-locked">🔒 Roster locked — submitted and final.</p>';
+    } else if (validation.errors.length) {
+      validationEl.innerHTML = `<ul class="validation-list">${validation.errors.map((e) => `<li>${e}</li>`).join('')}</ul>`;
+    } else {
+      validationEl.innerHTML = '<p class="validation-ok">All 6 slots filled — ready to lock in!</p>';
+    }
+  }
+
+  const warningEl = section.querySelector('.lock-warning');
+  if (warningEl) {
+    warningEl.innerHTML = `
+      <p><strong>⚠️ One-time lock</strong></p>
+      <p>Once you click <strong>Lock in roster</strong>, your picks are final and cannot be changed. Fill every slot before locking in.</p>
+    `;
   }
 
   [1, 2, 3].forEach((tier) => {
@@ -246,17 +303,28 @@ function updateBoard() {
     const grid = section.querySelector(`[data-tier="${tier}"] .team-grid`);
     if (grid) {
       grid.innerHTML = getTeamsByTier(tier)
-        .map((team) => renderTeamCard(team, draftPicks, locked))
+        .map((team) => renderTeamCard(team, draftPicks, readonly))
         .join('');
     }
   });
 
   const clearBtn = section.querySelector('#clear-picks');
   const submitBtn = section.querySelector('#submit-picks');
-  if (clearBtn) clearBtn.disabled = !draftPicks.length;
+  if (clearBtn) clearBtn.disabled = !draftPicks.length || readonly;
   if (submitBtn) {
-    submitBtn.disabled = !validation.valid || isSaving;
-    submitBtn.textContent = isSaving ? 'Saving…' : 'Lock in roster';
+    if (playerLocked) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Roster Locked';
+      submitBtn.className = 'btn btn-locked';
+    } else if (globallyLocked) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Entries Closed';
+      submitBtn.className = 'btn btn-locked';
+    } else {
+      submitBtn.className = 'btn btn-primary';
+      submitBtn.disabled = !validation.valid || isSaving;
+      submitBtn.textContent = isSaving ? 'Saving…' : 'Lock in roster';
+    }
   }
 }
 
@@ -267,17 +335,20 @@ function bindBoardEvents() {
 }
 
 function onBoardClick(e) {
-  if (appData.entriesLocked) return;
+  const session = getSession();
+  if (!session || isRosterLocked(session.playerId) || appData.entriesLocked) return;
 
   const card = e.target.closest('.team-card');
   if (card && !card.disabled) {
     draftPicks = togglePick(card.dataset.teamId, draftPicks);
+    saveDraft(session.playerId, draftPicks);
     updateBoard();
     return;
   }
 
   if (e.target.closest('#clear-picks')) {
     draftPicks = [];
+    saveDraft(session.playerId, draftPicks);
     updateBoard();
     return;
   }
@@ -291,6 +362,18 @@ async function onSubmitRoster() {
   const session = getSession();
   const v = validateRoster(draftPicks);
   if (!v.valid || !session?.pin) return;
+  if (isRosterLocked(session.playerId)) return;
+
+  const emptySlots = 6 - draftPicks.length;
+  if (emptySlots > 0) {
+    showError(`Fill all 6 slots before locking in (${emptySlots} remaining).`);
+    return;
+  }
+
+  const confirmed = window.confirm(
+    'Lock in your roster?\n\nThis is permanent — you cannot change your picks after locking in.'
+  );
+  if (!confirmed) return;
 
   isSaving = true;
   updateBoard();
@@ -298,11 +381,18 @@ async function onSubmitRoster() {
   try {
     const result = await submitRoster(session.playerId, session.pin, draftPicks);
     if (result.data) {
-      appData.rosters = rostersToMap(result.data.rosters || []);
-      appData.standings = result.data.standings || [];
-      appData.entriesLocked = !!result.data.entriesLocked;
+      await loadData();
+      appData.rosterLocked[session.playerId] = true;
+      setSession(
+        { playerId: session.playerId, name: session.name },
+        session.pin,
+        { rosterLocked: true }
+      );
+      clearDraft(session.playerId);
     }
-    showToast('Roster saved!');
+    showToast('Roster locked!');
+    boardMounted = false;
+    renderBoard();
   } catch (err) {
     showError(err.message);
   } finally {

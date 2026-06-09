@@ -160,6 +160,17 @@ body {
   background: #00d4b8;
 }
 
+.btn-locked {
+  background: #c0392b;
+  color: #fff;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.btn-locked:disabled {
+  opacity: 1;
+}
+
 .btn-ghost {
   background: transparent;
   color: var(--text-muted);
@@ -232,6 +243,14 @@ body {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.label-note {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .login-form select,
@@ -419,6 +438,65 @@ body {
   margin: 0 0 1rem;
   font-size: 0.82rem;
   color: var(--emerald);
+}
+
+.validation-locked {
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.lock-warning {
+  background: #ff6b6b14;
+  border: 1px solid #ff6b6b44;
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 1rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.lock-warning p {
+  margin: 0;
+}
+
+.lock-warning p + p {
+  margin-top: 0.35rem;
+}
+
+.lock-warning strong {
+  color: var(--danger);
+}
+
+.pin-reveal {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.pin-reveal p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.pin-reveal p + p {
+  margin-top: 0.5rem;
+}
+
+.pin-code {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+}
+
+.pin-note {
+  font-size: 0.8rem !important;
+  color: var(--text-muted);
 }
 
 .roster-actions {

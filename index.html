@@ -33,19 +33,20 @@
         <div id="error" class="error-banner hidden"></div>
 
         <section id="login-section" class="card login-card">
-          <h2>Enter the board</h2>
-          <p class="hint">Pick your name and PIN to build your roster of 6 teams.</p>
+          <h2>Join the board</h2>
+          <p class="hint">First time? Enter your name and you'll get a PIN. Returning? Enter your name and PIN.</p>
           <form id="login-form" class="login-form">
             <label>
-              Player
-              <select id="player-select" required></select>
+              Your name
+              <input type="text" id="name-input" required autocomplete="name" placeholder="e.g. Jason" maxlength="40" />
             </label>
             <label>
-              PIN
-              <input type="password" id="pin-input" required autocomplete="current-password" placeholder="••••" />
+              PIN <span class="label-note">(leave blank if first time)</span>
+              <input type="text" id="pin-input" inputmode="numeric" autocomplete="off" placeholder="••••" maxlength="4" />
             </label>
-            <button type="submit" class="btn btn-primary">Sign in</button>
+            <button type="submit" class="btn btn-primary">Join game</button>
           </form>
+          <div id="pin-reveal" class="pin-reveal hidden"></div>
         </section>
 
         <nav id="tabs" class="tabs hidden">

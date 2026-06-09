@@ -18,7 +18,6 @@ async function request(method, body) {
   };
 
   if (body) {
-    // text/plain avoids CORS preflight issues with Google Apps Script
     options.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
     options.body = JSON.stringify(body);
   }
@@ -50,8 +49,8 @@ export function fetchData() {
   return request('GET');
 }
 
-export function login(playerId, pin) {
-  return request('POST', { action: 'login', playerId, pin });
+export function join(name, pin) {
+  return request('POST', { action: 'join', name, pin: pin || '' });
 }
 
 export function submitRoster(playerId, pin, teamIds) {

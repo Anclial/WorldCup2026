@@ -3,19 +3,16 @@
  *
  * SETUP:
  * 1. Open your Google Sheet → Extensions → Apps Script
- * 2. Paste this file (SPREADSHEET_ID is already set)
- * 3. Run setupSheets() once from the editor (authorize when prompted)
- * 4. Edit the Players tab — add your friends and PINs
- * 5. Deploy → New deployment → Web app
+ * 2. Paste this file, save
+ * 3. Run migrateSheets() once if upgrading an existing sheet
+ * 4. Deploy → Manage deployments → Edit → New version → Deploy
  *      Execute as: Me | Who has access: Anyone
- * 6. Copy the Web App URL into src/config.js → APPS_SCRIPT_URL
  *
- * SHEET TABS (created by setupSheets):
- *
- * Players:  player_id | name | pin
- * Rosters:  player_id | team_1 | team_2 | team_3 | team_4 | team_5 | team_6 | points | updated_at
+ * SHEET TABS:
+ * Players:  player_id | name | pin | created_at
+ * Rosters:  player_id | team_1 … team_6 | points | updated_at | locked
  * Results:  team_id | group_wins | group_draws | knockout_wins
- * Config:   key | value   (entries_locked = true/false)
+ * Config:   key | value
  */
 
 const SPREADSHEET_ID = '1hP3GiaeaMfaokbmm9nJDy8T9ZtF_y7oaljRZgxuX-48';
@@ -29,7 +26,6 @@ const TABS = {
 
 const TIER_MULTIPLIER = { 1: 1, 2: 1.5, 3: 2.5 };
 
-/** Mirrors src/data/teams.js — used for server-side validation & scoring */
 const TEAMS = {
   brazil: { tier: 1, group: 'C' },
   germany: { tier: 1, group: 'E' },
@@ -85,6 +81,7 @@ const TEAMS = {
 
 function doGet() {
   try {
+    migrateSheets();
     recalculateAllPoints();
     return jsonResponse(getAllData());
   } catch (err) {
@@ -94,24 +91,30 @@ function doGet() {
 
 function doPost(e) {
   try {
+    migrateSheets();
     const body = JSON.parse(e.postData.contents);
     const action = body.action;
 
-    if (action === 'login') {
-      const player = authenticatePlayer(body.playerId, body.pin);
-      if (!player) return jsonResponse({ error: 'Invalid player or PIN' });
-      return jsonResponse({ player });
+    if (action === 'join') {
+      const result = joinPlayer(body.name, body.pin);
+      if (result.error) return jsonResponse({ error: result.error });
+      return jsonResponse(result);
     }
 
     if (action === 'submitRoster') {
       const player = authenticatePlayer(body.playerId, body.pin);
       if (!player) return jsonResponse({ error: 'Invalid player or PIN' });
-      if (isEntriesLocked()) return jsonResponse({ error: 'Entries are locked — rosters can no longer be changed.' });
+      if (isEntriesLocked()) {
+        return jsonResponse({ error: 'Entries are closed — rosters can no longer be submitted.' });
+      }
+      if (isRosterLocked(body.playerId)) {
+        return jsonResponse({ error: 'Your roster is already locked.' });
+      }
 
       const validation = validateRoster(body.teamIds);
       if (!validation.valid) return jsonResponse({ error: validation.errors.join(' ') });
 
-      saveRoster(body.playerId, body.teamIds);
+      saveRoster(body.playerId, body.teamIds, true);
       recalculateAllPoints();
       return jsonResponse({ success: true, data: getAllData() });
     }
@@ -127,21 +130,17 @@ function jsonResponse(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// ─── One-time sheet setup ────────────────────────────────────────────────────
+// ─── Sheet setup & migration ─────────────────────────────────────────────────
 
 function setupSheets() {
   const ss = getSpreadsheet();
 
   ensureSheet(ss, TABS.PLAYERS, [
-    ['player_id', 'name', 'pin'],
-    ['jason', 'Jason', '1234'],
-    ['mike', 'Mike', '5678'],
-    ['sarah', 'Sarah', '9999'],
-    ['alex', 'Alex', '0000'],
+    ['player_id', 'name', 'pin', 'created_at'],
   ]);
 
   ensureSheet(ss, TABS.ROSTERS, [
-    ['player_id', 'team_1', 'team_2', 'team_3', 'team_4', 'team_5', 'team_6', 'points', 'updated_at'],
+    ['player_id', 'team_1', 'team_2', 'team_3', 'team_4', 'team_5', 'team_6', 'points', 'updated_at', 'locked'],
   ]);
 
   ensureSheet(ss, TABS.RESULTS, [
@@ -153,14 +152,31 @@ function setupSheets() {
     ['entries_locked', 'false'],
   ]);
 
-  // Seed Results rows for every team (all zeros)
-  const resultsSheet = ss.getSheetByName(TABS.RESULTS);
-  const existing = resultsSheet.getLastRow();
-  if (existing <= 1) {
-    Object.keys(TEAMS).forEach((teamId) => {
-      resultsSheet.appendRow([teamId, 0, 0, 0]);
-    });
+  seedResults(ss);
+}
+
+function migrateSheets() {
+  const ss = getSpreadsheet();
+  ensureColumn(ss, TABS.PLAYERS, 'created_at');
+  ensureColumn(ss, TABS.ROSTERS, 'locked');
+}
+
+function ensureColumn(ss, tabName, columnName) {
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) return;
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(normalizeHeader);
+  if (headers.indexOf(columnName) === -1) {
+    sheet.getRange(1, lastCol + 1).setValue(columnName).setFontWeight('bold');
   }
+}
+
+function seedResults(ss) {
+  const resultsSheet = ss.getSheetByName(TABS.RESULTS);
+  if (!resultsSheet || resultsSheet.getLastRow() > 1) return;
+  Object.keys(TEAMS).forEach((teamId) => {
+    resultsSheet.appendRow([teamId, 0, 0, 0]);
+  });
 }
 
 function ensureSheet(ss, name, rows) {
@@ -211,6 +227,12 @@ function isEntriesLocked() {
   return row ? isTruthy(row.value) : false;
 }
 
+function isRosterLocked(playerId) {
+  const rows = getSheetData(TABS.ROSTERS);
+  const row = rows.find((r) => String(r.player_id) === String(playerId));
+  return row ? isTruthy(row.locked) : false;
+}
+
 function getAllData() {
   const players = getSheetData(TABS.PLAYERS).map((p) => ({
     playerId: String(p.player_id),
@@ -224,6 +246,7 @@ function getAllData() {
       .filter(Boolean),
     points: Number(r.points) || 0,
     updatedAt: formatDateTime(r.updated_at),
+    locked: isTruthy(r.locked),
   }));
 
   const standings = players
@@ -252,7 +275,75 @@ function formatDateTime(value) {
   return String(value || '');
 }
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
+// ─── Join & auth ─────────────────────────────────────────────────────────────
+
+function joinPlayer(name, pin) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return { error: 'Please enter your name.' };
+  if (trimmed.length < 2) return { error: 'Name must be at least 2 characters.' };
+
+  const pinStr = String(pin || '').trim();
+  const existing = findPlayerByName(trimmed);
+
+  if (existing) {
+    if (!pinStr) {
+      return {
+        error: 'That name is already registered. Enter your PIN, or use a different name.',
+      };
+    }
+    if (String(existing.pin) !== pinStr) {
+      return { error: 'Incorrect PIN for that name.' };
+    }
+    return {
+      player: { playerId: String(existing.player_id), name: String(existing.name) },
+      isNew: false,
+      rosterLocked: isRosterLocked(existing.player_id),
+    };
+  }
+
+  if (pinStr) {
+    return { error: 'Name not found. Leave PIN blank to join as a new player.' };
+  }
+
+  const playerId = createPlayerId(trimmed);
+  const newPin = generatePin();
+  const sheet = getSpreadsheet().getSheetByName(TABS.PLAYERS);
+  sheet.appendRow([playerId, trimmed, newPin, new Date()]);
+
+  return {
+    player: { playerId: playerId, name: trimmed },
+    pin: newPin,
+    isNew: true,
+    rosterLocked: false,
+  };
+}
+
+function findPlayerByName(name) {
+  const normalized = name.trim().toLowerCase();
+  return getSheetData(TABS.PLAYERS).find(
+    (r) => String(r.name).trim().toLowerCase() === normalized
+  );
+}
+
+function slugify(name) {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'player';
+}
+
+function createPlayerId(name) {
+  const base = slugify(name);
+  const rows = getSheetData(TABS.PLAYERS);
+  let id = base;
+  let attempts = 0;
+  while (rows.some((r) => String(r.player_id) === id) && attempts < 50) {
+    id = base + '-' + Math.floor(1000 + Math.random() * 9000);
+    attempts++;
+  }
+  return id;
+}
+
+function generatePin() {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
 
 function authenticatePlayer(playerId, pin) {
   const rows = getSheetData(TABS.PLAYERS);
@@ -267,7 +358,7 @@ function authenticatePlayer(playerId, pin) {
 function validateRoster(teamIds) {
   const errors = [];
   if (!teamIds || teamIds.length !== 6) {
-    errors.push('Roster must have exactly 6 teams.');
+    errors.push('Fill all 6 roster slots before locking in.');
     return { valid: false, errors };
   }
 
@@ -297,11 +388,12 @@ function validateRoster(teamIds) {
   return { valid: errors.length === 0, errors };
 }
 
-function saveRoster(playerId, teamIds) {
+function saveRoster(playerId, teamIds, lock) {
   const sheet = getSpreadsheet().getSheetByName(TABS.ROSTERS);
   const values = sheet.getDataRange().getValues();
   const headers = values[0].map(normalizeHeader);
   const playerIdCol = headers.indexOf('player_id');
+  const lockedCol = headers.indexOf('locked');
   const now = new Date();
 
   let rowNum = -1;
@@ -312,22 +404,26 @@ function saveRoster(playerId, teamIds) {
     }
   }
 
-  const rowData = [
-    playerId,
-    teamIds[0], teamIds[1], teamIds[2],
-    teamIds[3], teamIds[4], teamIds[5],
-    '', now,
-  ];
+  const rowData = new Array(headers.length).fill('');
+  rowData[playerIdCol] = playerId;
+  const teamCols = [1, 2, 3, 4, 5, 6].map((n) => headers.indexOf('team_' + n));
+  teamCols.forEach((col, i) => {
+    if (col !== -1) rowData[col] = teamIds[i];
+  });
+  const pointsCol = headers.indexOf('points');
+  const updatedCol = headers.indexOf('updated_at');
+  if (updatedCol !== -1) rowData[updatedCol] = now;
+  if (lockedCol !== -1) rowData[lockedCol] = lock ? 'true' : '';
 
   if (rowNum > 0) {
     sheet.getRange(rowNum, 1, 1, rowData.length).setValues([rowData]);
   } else {
+    if (pointsCol !== -1) rowData[pointsCol] = '';
     sheet.appendRow(rowData);
   }
 }
 
 // ─── Scoring ─────────────────────────────────────────────────────────────────
-// Group win = 1 pt | Group draw = 0.5 pt | Knockout win = 1 base pt × tier multiplier
 
 function scoreTeam(teamId) {
   const team = TEAMS[teamId];
