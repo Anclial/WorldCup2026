@@ -84,7 +84,6 @@ function bindEvents() {
 async function onLogin(e) {
   e.preventDefault();
   hideError();
-  hidePinReveal();
 
   const name = $('#name-input').value.trim();
   const pin = $('#pin-input').value.trim();
@@ -95,19 +94,20 @@ async function onLogin(e) {
 
   try {
     const result = await join(name, pin);
-    setSession(result.player, pin || result.pin, {
-      rosterLocked: !!result.rosterLocked,
-    });
 
     if (result.isNew) {
-      showPinReveal(result.pin, result.player.name);
-      setSession(result.player, result.pin, { rosterLocked: false });
-      enterApp({ ...result.player, pin: result.pin, rosterLocked: false });
+      setSession(result.player, result.pin, { rosterLocked: false, isNewPlayer: true });
+      enterApp({ ...result.player, pin: result.pin, rosterLocked: false, isNewPlayer: true });
     } else {
+      setSession(result.player, pin, {
+        rosterLocked: !!result.rosterLocked,
+        isNewPlayer: false,
+      });
       enterApp({
         ...result.player,
         pin,
         rosterLocked: !!result.rosterLocked,
+        isNewPlayer: false,
       });
     }
   } catch (err) {
@@ -117,18 +117,27 @@ async function onLogin(e) {
   }
 }
 
-function showPinReveal(pin, name) {
-  const el = $('#pin-reveal');
-  el.classList.remove('hidden');
-  el.innerHTML = `
-    <p><strong>Welcome, ${escapeHtml(name)}!</strong> Your PIN is:</p>
-    <p class="pin-code">${escapeHtml(pin)}</p>
-    <p class="pin-note">Save this PIN — you'll need it to sign back in before you lock your roster.</p>
-  `;
+function shouldShowPinReminder(session) {
+  if (!session?.pin) return false;
+  if (isRosterLocked(session.playerId)) return false;
+  return true;
 }
 
-function hidePinReveal() {
-  $('#pin-reveal').classList.add('hidden');
+function renderPinBannerHtml(session) {
+  if (!shouldShowPinReminder(session)) return '';
+
+  const isNew = !!session.isNewPlayer;
+  return `
+    <div class="pin-banner ${isNew ? 'pin-banner--new' : ''}" role="status">
+      <div class="pin-banner-inner">
+        <div class="pin-banner-main">
+          ${isNew ? '<span class="pin-banner-welcome">Welcome! Your PIN is</span>' : '<span class="pin-banner-welcome">Your PIN</span>'}
+          <span class="pin-banner-code">${escapeHtml(session.pin)}</span>
+        </div>
+        <p class="pin-banner-note">Remember this PIN — you'll need it to sign back in before you lock your roster.</p>
+      </div>
+    </div>
+  `;
 }
 
 function escapeHtml(str) {
@@ -160,8 +169,14 @@ function enterApp(player) {
 function renderUserBar(player) {
   const bar = $('#user-bar');
   bar.classList.remove('hidden');
+  const pinHtml = shouldShowPinReminder(player)
+    ? `<span class="user-pin">PIN <strong>${escapeHtml(player.pin)}</strong></span>`
+    : '';
   bar.innerHTML = `
-    <span class="user-greeting">Playing as <strong>${player.name}</strong></span>
+    <div class="user-bar-info">
+      <span class="user-greeting">Playing as <strong>${escapeHtml(player.name)}</strong></span>
+      ${pinHtml}
+    </div>
     <button id="sign-out" class="btn btn-ghost btn-sm">Sign out</button>
   `;
   $('#sign-out').addEventListener('click', () => {
@@ -230,6 +245,7 @@ function mountBoard() {
   const section = $('#board-section');
 
   section.innerHTML = `
+    ${renderPinBannerHtml(session)}
     ${globallyLocked && !playerLocked ? '<div class="locked-banner">🔒 Entries are closed — rosters can no longer be submitted.</div>' : ''}
     <div class="board-layout">
       <aside class="roster-panel card">
@@ -389,14 +405,15 @@ async function onSubmitRoster() {
     if (result.data) {
       await loadData();
       appData.rosterLocked[session.playerId] = true;
-      setSession(
-        { playerId: session.playerId, name: session.name },
-        session.pin,
-        { rosterLocked: true }
-      );
       clearDraft(session.playerId);
     }
+    setSession(
+      { playerId: session.playerId, name: session.name },
+      session.pin,
+      { rosterLocked: true, isNewPlayer: false }
+    );
     showToast('Roster locked!');
+    renderUserBar(getSession());
     boardMounted = false;
     renderBoard();
   } catch (err) {

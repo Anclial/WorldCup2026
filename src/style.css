@@ -102,6 +102,13 @@ body {
   gap: 0.75rem;
 }
 
+.user-bar-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
 .user-greeting {
   font-size: 0.9rem;
   color: var(--text-muted);
@@ -109,6 +116,17 @@ body {
 
 .user-greeting strong {
   color: var(--text);
+}
+
+.user-pin {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.user-pin strong {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
 }
 
 /* Main */
@@ -469,33 +487,50 @@ body {
   color: var(--danger);
 }
 
-.pin-reveal {
-  margin-top: 1.25rem;
-  padding: 1rem;
+.pin-banner {
+  margin-bottom: 1rem;
+  padding: 1rem 1.1rem;
   background: var(--accent-dim);
-  border: 1px solid var(--accent);
+  border: 1px solid #00c2a844;
   border-radius: var(--radius-sm);
-  text-align: center;
 }
 
-.pin-reveal p {
-  margin: 0;
+.pin-banner--new {
+  background: #00c2a822;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px #00c2a833;
+}
+
+.pin-banner-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pin-banner-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.pin-banner-welcome {
   font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
-.pin-reveal p + p {
-  margin-top: 0.5rem;
-}
-
-.pin-code {
-  font-size: 2rem;
+.pin-banner-code {
+  font-size: 1.75rem;
   font-weight: 700;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.18em;
   color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
 
-.pin-note {
-  font-size: 0.8rem !important;
+.pin-banner-note {
+  margin: 0;
+  font-size: 0.82rem;
   color: var(--text-muted);
 }
 
@@ -913,6 +948,11 @@ body {
   .user-bar {
     width: 100%;
     justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .user-bar-info {
+    align-items: flex-start;
   }
 
   .main {
