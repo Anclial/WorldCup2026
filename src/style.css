@@ -942,6 +942,51 @@ body {
   margin-top: 0.35rem;
 }
 
+.rules-intro {
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.scoring-table-wrap {
+  overflow-x: auto;
+}
+
+.scoring-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.scoring-table th,
+.scoring-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.scoring-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.scoring-table tr.tier-1 td:first-child { color: var(--gold); }
+.scoring-table tr.tier-2 td:first-child { color: var(--blue); }
+.scoring-table tr.tier-3 td:first-child { color: var(--emerald); }
+
+.knockout-round-list {
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.knockout-round-list li + li {
+  margin-top: 0.35rem;
+}
+
 .multiplier-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

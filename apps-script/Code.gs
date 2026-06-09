@@ -11,7 +11,8 @@
  * SHEET TABS:
  * Players:  player_id | name | pin | created_at | circle
  * Rosters:  player_id | team_1 … team_6 | points | updated_at | locked
- * Results:  team_id | group_wins | group_draws | knockout_wins
+ * Results:  team_id | group_wins | group_draws | r32 | r16 | qf | sf | final | champion
+ *   (knockout columns: 1 = team reached that round)
  * Config:   key | value
  */
 
@@ -25,6 +26,21 @@ const TABS = {
 };
 
 const TIER_MULTIPLIER = { 1: 1, 2: 1.5, 3: 2.5 };
+
+const GROUP_STAGE_POINTS = {
+  1: { win: 1.0, draw: 0.5 },
+  2: { win: 1.2, draw: 0.6 },
+  3: { win: 1.5, draw: 0.75 },
+};
+
+const KNOCKOUT_ROUNDS = [
+  { key: 'r32', points: 1 },
+  { key: 'r16', points: 2 },
+  { key: 'qf', points: 3 },
+  { key: 'sf', points: 4 },
+  { key: 'final', points: 5 },
+  { key: 'champion', points: 7 },
+];
 
 const TEAMS = {
   brazil: { tier: 1, group: 'C' },
@@ -154,7 +170,7 @@ function setupSheets() {
   ]);
 
   ensureSheet(ss, TABS.RESULTS, [
-    ['team_id', 'group_wins', 'group_draws', 'knockout_wins'],
+    ['team_id', 'group_wins', 'group_draws', 'r32', 'r16', 'qf', 'sf', 'final', 'champion'],
   ]);
 
   ensureSheet(ss, TABS.CONFIG, [
@@ -172,6 +188,10 @@ function migrateSheets() {
   ensureColumn(ss, TABS.PLAYERS, 'created_at');
   ensureColumn(ss, TABS.PLAYERS, 'circle');
   ensureColumn(ss, TABS.ROSTERS, 'locked');
+  KNOCKOUT_ROUNDS.forEach(function(round) {
+    ensureColumn(ss, TABS.RESULTS, round.key);
+  });
+  ensureMissingResultRows(ss);
 }
 
 function ensureColumn(ss, tabName, columnName) {
@@ -188,7 +208,30 @@ function seedResults(ss) {
   const resultsSheet = ss.getSheetByName(TABS.RESULTS);
   if (!resultsSheet || resultsSheet.getLastRow() > 1) return;
   Object.keys(TEAMS).forEach((teamId) => {
-    resultsSheet.appendRow([teamId, 0, 0, 0]);
+    resultsSheet.appendRow([teamId, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+}
+
+function ensureMissingResultRows(ss) {
+  const sheet = ss.getSheetByName(TABS.RESULTS);
+  if (!sheet || sheet.getLastRow() < 1) return;
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(normalizeHeader);
+  const teamIdCol = headers.indexOf('team_id');
+  if (teamIdCol === -1) return;
+
+  const values = sheet.getDataRange().getValues();
+  const existing = {};
+  for (var i = 1; i < values.length; i++) {
+    existing[String(values[i][teamIdCol])] = true;
+  }
+
+  Object.keys(TEAMS).forEach(function(teamId) {
+    if (!existing[teamId]) {
+      var row = new Array(headers.length).fill(0);
+      row[teamIdCol] = teamId;
+      sheet.appendRow(row);
+    }
   });
 }
 
@@ -465,20 +508,34 @@ function saveRoster(playerId, teamIds, lock) {
 
 // ─── Scoring ─────────────────────────────────────────────────────────────────
 
+function scoreGroupStage(team, result) {
+  var pts = GROUP_STAGE_POINTS[team.tier];
+  if (!pts) return 0;
+  var wins = Number(result.group_wins) || 0;
+  var draws = Number(result.group_draws) || 0;
+  return (wins * pts.win) + (draws * pts.draw);
+}
+
+function scoreKnockout(team, result) {
+  var multiplier = TIER_MULTIPLIER[team.tier];
+  var total = 0;
+  KNOCKOUT_ROUNDS.forEach(function(round) {
+    if (isTruthy(result[round.key])) {
+      total += round.points * multiplier;
+    }
+  });
+  return total;
+}
+
 function scoreTeam(teamId) {
-  const team = TEAMS[teamId];
+  var team = TEAMS[teamId];
   if (!team) return 0;
 
-  const results = getSheetData(TABS.RESULTS);
-  const result = results.find((r) => String(r.team_id) === teamId);
+  var results = getSheetData(TABS.RESULTS);
+  var result = results.find(function(r) { return String(r.team_id) === teamId; });
   if (!result) return 0;
 
-  const groupWins = Number(result.group_wins) || 0;
-  const groupDraws = Number(result.group_draws) || 0;
-  const knockoutWins = Number(result.knockout_wins) || 0;
-  const multiplier = TIER_MULTIPLIER[team.tier];
-
-  return (groupWins * 1) + (groupDraws * 0.5) + (knockoutWins * 1 * multiplier);
+  return scoreGroupStage(team, result) + scoreKnockout(team, result);
 }
 
 function recalculateAllPoints() {

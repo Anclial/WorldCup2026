@@ -1,5 +1,6 @@
 import { fetchData, join, submitRoster } from './api.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
+import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS } from './data/scoring.js';
 import { RULES, TEAM_BY_ID, TIERS } from './data/teams.js';
 import {
   getDisableReason,
@@ -729,25 +730,49 @@ function renderRules() {
       </section>
 
       <section class="rules-block">
-        <h3>Scoring</h3>
-        <ul>
-          <li><strong>Group stage win:</strong> 1 point (all teams)</li>
-          <li><strong>Group stage draw:</strong> 0.5 points (all teams)</li>
-          <li><strong>Knockout rounds</strong> (R32, R16, Quarters, Semis, Final): base points × tier multiplier</li>
+        <h3>Act I — Group Stage</h3>
+        <p class="rules-intro">Points per match result during the group stage:</p>
+        <div class="scoring-table-wrap">
+          <table class="scoring-table">
+            <thead>
+              <tr>
+                <th>Tier</th>
+                <th>Win</th>
+                <th>Draw</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${[1, 2, 3]
+                .map(
+                  (tier) => `
+              <tr class="tier-${tier}">
+                <td>${GROUP_STAGE_POINTS[tier].label}</td>
+                <td>${GROUP_STAGE_POINTS[tier].win} pt</td>
+                <td>${GROUP_STAGE_POINTS[tier].draw} pts</td>
+              </tr>`
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="rules-block">
+        <h3>Act II — Knockout Stage</h3>
+        <p class="rules-intro">Base points when a team reaches a round — multiplied by tier:</p>
+        <ul class="knockout-round-list">
+          ${KNOCKOUT_ROUNDS.map((r) => `<li><strong>${r.label}:</strong> ${r.points} pt${r.points === 1 ? '' : 's'}</li>`).join('')}
         </ul>
         <div class="multiplier-grid">
-          <div class="multiplier-item tier-1">
-            <span class="multiplier-label">Tier 1 Favorites</span>
-            <span class="multiplier-value">1×</span>
-          </div>
-          <div class="multiplier-item tier-2">
-            <span class="multiplier-label">Tier 2 Contenders</span>
-            <span class="multiplier-value">1.5×</span>
-          </div>
-          <div class="multiplier-item tier-3">
-            <span class="multiplier-label">Tier 3 Underdogs</span>
-            <span class="multiplier-value">2.5×</span>
-          </div>
+          ${[1, 2, 3]
+            .map(
+              (tier) => `
+          <div class="multiplier-item tier-${tier}">
+            <span class="multiplier-label">${KNOCKOUT_MULTIPLIERS[tier].label}</span>
+            <span class="multiplier-value">${KNOCKOUT_MULTIPLIERS[tier].value}</span>
+          </div>`
+            )
+            .join('')}
         </div>
       </section>
 
