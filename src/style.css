@@ -987,6 +987,75 @@ body {
   margin-top: 0.35rem;
 }
 
+/* Odds */
+
+.odds-card h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+.odds-desc {
+  margin-bottom: 1.25rem;
+}
+
+.odds-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.odds-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--border);
+}
+
+.odds-item.tier-1 { border-left-color: var(--gold); }
+.odds-item.tier-2 { border-left-color: var(--blue); }
+.odds-item.tier-3 { border-left-color: var(--emerald); }
+
+.odds-item:nth-child(-n + 3) {
+  background: linear-gradient(90deg, var(--accent-dim), var(--bg-elevated));
+}
+
+.odds-rank {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 1.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.odds-item:nth-child(1) .odds-rank { color: var(--gold); }
+.odds-item:nth-child(2) .odds-rank { color: #c0c8d4; }
+.odds-item:nth-child(3) .odds-rank { color: #cd7f32; }
+
+.odds-team {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.odds-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.odds-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
 .multiplier-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

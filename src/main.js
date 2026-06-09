@@ -1,5 +1,6 @@
 import { fetchData, join, submitRoster } from './api.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
+import { WIN_ODDS_RANK } from './data/odds.js';
 import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS } from './data/scoring.js';
 import { RULES, TEAM_BY_ID, TIERS } from './data/teams.js';
 import {
@@ -279,6 +280,7 @@ async function switchTab(tab) {
   $('#leaderboard-section').classList.toggle('hidden', tab !== 'leaderboard');
   $('#everyone-section').classList.toggle('hidden', tab !== 'everyone');
   $('#rules-section').classList.toggle('hidden', tab !== 'rules');
+  $('#odds-section').classList.toggle('hidden', tab !== 'odds');
 
   if (tab === 'leaderboard' || tab === 'everyone') {
     try {
@@ -292,6 +294,34 @@ async function switchTab(tab) {
   if (tab === 'leaderboard') renderLeaderboard();
   if (tab === 'everyone') renderEveryone();
   if (tab === 'rules') renderRules();
+  if (tab === 'odds') renderOdds();
+}
+
+function renderOdds() {
+  const section = $('#odds-section');
+
+  section.innerHTML = `
+    <div class="card odds-card">
+      <h2>Odds of Winning the World Cup</h2>
+      <p class="section-desc odds-desc">
+        Teams higher on this list are expected to do better than teams lower on the list.
+      </p>
+      <ol class="odds-list">
+        ${WIN_ODDS_RANK.map((teamId, i) => {
+          const team = TEAM_BY_ID[teamId];
+          if (!team) return '';
+          return `
+          <li class="odds-item ${TIERS[team.tier].color}">
+            <span class="odds-rank">${i + 1}</span>
+            <span class="odds-team">
+              <span class="odds-name">${escapeHtml(team.name)}</span>
+              <span class="odds-meta">Group ${team.group} · ${TIERS[team.tier].label}</span>
+            </span>
+          </li>`;
+        }).join('')}
+      </ol>
+    </div>
+  `;
 }
 
 async function refreshData() {
