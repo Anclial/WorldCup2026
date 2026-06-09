@@ -29,11 +29,13 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  overflow-x: hidden;
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
@@ -136,6 +138,8 @@ body {
   padding: 0.65rem 1.1rem;
   cursor: pointer;
   transition: background 0.15s, transform 0.1s, opacity 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn:disabled {
@@ -271,6 +275,9 @@ body {
   color: var(--text-muted);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
 }
 
 .tab:hover {
@@ -295,6 +302,15 @@ body {
 @media (max-width: 900px) {
   .board-layout {
     grid-template-columns: 1fr;
+  }
+
+  /* Teams first on mobile — roster summary below */
+  .selection-board {
+    order: 1;
+  }
+
+  .roster-panel {
+    order: 2;
   }
 }
 
@@ -507,13 +523,18 @@ body {
   background: var(--bg-card);
   color: var(--text);
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  transition: border-color 0.15s, background 0.15s;
   min-height: 64px;
+  width: 100%;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.team-card:not(:disabled):hover {
-  border-color: var(--text-muted);
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .team-card:not(:disabled):hover {
+    border-color: var(--text-muted);
+    transform: translateY(-1px);
+  }
 }
 
 .team-card.selected {
@@ -797,4 +818,144 @@ body {
   text-align: center;
   color: var(--text-muted);
   padding: 2rem;
+}
+
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .header-inner {
+    flex-wrap: wrap;
+    padding: 0.85rem 1rem;
+  }
+
+  .brand h1 {
+    font-size: 1.15rem;
+  }
+
+  .user-bar {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .main {
+    padding: 1rem 0.85rem 2.5rem;
+  }
+
+  .card {
+    padding: 1.1rem;
+  }
+
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-bottom: 1rem;
+    padding: 0.3rem;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    padding: 0.6rem 0.85rem;
+    font-size: 0.8rem;
+  }
+
+  .roster-panel {
+    position: static;
+  }
+
+  .board-layout {
+    gap: 1rem;
+  }
+
+  .tier-section {
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .tier-heading h3 {
+    font-size: 1rem;
+  }
+
+  .team-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .team-card {
+    min-height: 72px;
+    padding: 0.7rem 0.75rem;
+  }
+
+  .team-name {
+    font-size: 0.82rem;
+    padding-right: 1rem;
+  }
+
+  .team-lock {
+    font-size: 0.6rem;
+    line-height: 1.2;
+  }
+
+  .roster-actions {
+    flex-direction: column;
+  }
+
+  .roster-actions .btn {
+    width: 100%;
+    padding: 0.85rem 1rem;
+  }
+
+  .all-rosters {
+    grid-template-columns: 1fr;
+  }
+
+  .player-pick-list li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+  }
+
+  .pick-meta {
+    white-space: normal;
+  }
+
+  .leaderboard-table {
+    font-size: 0.82rem;
+  }
+
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: 0.55rem 0.5rem;
+  }
+
+  .leaderboard-table .roster-preview {
+    max-width: 140px;
+    font-size: 0.75rem;
+  }
+
+  .underdog-groups {
+    grid-template-columns: 1fr;
+  }
+
+  .toast {
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    left: 1rem;
+    right: 1rem;
+    transform: none;
+    max-width: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .team-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .brand-icon {
+    font-size: 1.5rem;
+  }
 }

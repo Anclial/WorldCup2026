@@ -16,6 +16,8 @@ let activeTab = 'board';
 let draftPicks = [];
 let appData = { players: [], rosters: {}, standings: [], entriesLocked: false };
 let isSaving = false;
+let boardMounted = false;
+let boardClickBound = false;
 
 init();
 
@@ -160,12 +162,21 @@ async function refreshData() {
 }
 
 function renderBoard() {
-  const session = getSession();
-  const validation = validateRoster(draftPicks);
-  const counts = getTierCounts(draftPicks);
-  const locked = appData.entriesLocked;
   const section = $('#board-section');
   section.classList.remove('hidden');
+
+  if (!boardMounted) {
+    mountBoard();
+    boardMounted = true;
+    bindBoardEvents();
+  } else {
+    updateBoard();
+  }
+}
+
+function mountBoard() {
+  const locked = appData.entriesLocked;
+  const section = $('#board-section');
 
   section.innerHTML = `
     ${locked ? '<div class="locked-banner">🔒 Entries are locked — rosters can no longer be changed.</div>' : ''}
@@ -173,33 +184,15 @@ function renderBoard() {
       <aside class="roster-panel card">
         <h2>Your Roster</h2>
         <p class="roster-sub">Exactly 6 teams · max 1 per group</p>
-        <div class="roster-slots">
-          ${renderRosterSlots(draftPicks)}
-        </div>
-        <div class="tier-progress">
-          ${[1, 2, 3]
-            .map(
-              (tier) => `
-            <div class="tier-progress-row ${TIERS[tier].color}">
-              <span>${TIERS[tier].name}</span>
-              <span class="tier-progress-count">${counts[tier]}/${RULES.tierPicks[tier]}</span>
-            </div>`
-            )
-            .join('')}
-        </div>
-        ${
-          validation.errors.length
-            ? `<ul class="validation-list">${validation.errors.map((e) => `<li>${e}</li>`).join('')}</ul>`
-            : '<p class="validation-ok">Roster complete — ready to submit!</p>'
-        }
+        <div class="roster-slots"></div>
+        <div class="tier-progress"></div>
+        <div class="roster-validation"></div>
         ${
           locked
             ? ''
             : `<div class="roster-actions">
-          <button id="clear-picks" class="btn btn-ghost" ${draftPicks.length ? '' : 'disabled'}>Clear all</button>
-          <button id="submit-picks" class="btn btn-primary" ${validation.valid && !isSaving ? '' : 'disabled'}>
-            ${isSaving ? 'Saving…' : 'Lock in roster'}
-          </button>
+          <button type="button" id="clear-picks" class="btn btn-ghost">Clear all</button>
+          <button type="button" id="submit-picks" class="btn btn-primary">Lock in roster</button>
         </div>`
         }
       </aside>
@@ -214,21 +207,83 @@ function renderBoard() {
     </div>
   `;
 
-  if (!locked) {
-    section.querySelectorAll('.team-card:not([disabled])').forEach((card) => {
-      card.addEventListener('click', () => {
-        const id = card.dataset.teamId;
-        draftPicks = togglePick(id, draftPicks);
-        renderBoard();
-      });
-    });
+  updateBoard();
+}
 
-    $('#clear-picks')?.addEventListener('click', () => {
-      draftPicks = [];
-      renderBoard();
-    });
+function updateBoard() {
+  const validation = validateRoster(draftPicks);
+  const counts = getTierCounts(draftPicks);
+  const locked = appData.entriesLocked;
+  const section = $('#board-section');
 
-    $('#submit-picks')?.addEventListener('click', onSubmitRoster);
+  const slotsEl = section.querySelector('.roster-slots');
+  if (slotsEl) slotsEl.innerHTML = renderRosterSlots(draftPicks);
+
+  const progressEl = section.querySelector('.tier-progress');
+  if (progressEl) {
+    progressEl.innerHTML = [1, 2, 3]
+      .map(
+        (tier) => `
+      <div class="tier-progress-row ${TIERS[tier].color}">
+        <span>${TIERS[tier].name}</span>
+        <span class="tier-progress-count">${counts[tier]}/${RULES.tierPicks[tier]}</span>
+      </div>`
+      )
+      .join('');
+  }
+
+  const validationEl = section.querySelector('.roster-validation');
+  if (validationEl) {
+    validationEl.innerHTML = validation.errors.length
+      ? `<ul class="validation-list">${validation.errors.map((e) => `<li>${e}</li>`).join('')}</ul>`
+      : '<p class="validation-ok">Roster complete — ready to submit!</p>';
+  }
+
+  [1, 2, 3].forEach((tier) => {
+    const countEl = section.querySelector(`[data-tier="${tier}"] .tier-count`);
+    if (countEl) countEl.textContent = `${counts[tier]}/${TIERS[tier].pickCount} picked`;
+
+    const grid = section.querySelector(`[data-tier="${tier}"] .team-grid`);
+    if (grid) {
+      grid.innerHTML = getTeamsByTier(tier)
+        .map((team) => renderTeamCard(team, draftPicks, locked))
+        .join('');
+    }
+  });
+
+  const clearBtn = section.querySelector('#clear-picks');
+  const submitBtn = section.querySelector('#submit-picks');
+  if (clearBtn) clearBtn.disabled = !draftPicks.length;
+  if (submitBtn) {
+    submitBtn.disabled = !validation.valid || isSaving;
+    submitBtn.textContent = isSaving ? 'Saving…' : 'Lock in roster';
+  }
+}
+
+function bindBoardEvents() {
+  if (boardClickBound) return;
+  $('#board-section').addEventListener('click', onBoardClick);
+  boardClickBound = true;
+}
+
+function onBoardClick(e) {
+  if (appData.entriesLocked) return;
+
+  const card = e.target.closest('.team-card');
+  if (card && !card.disabled) {
+    draftPicks = togglePick(card.dataset.teamId, draftPicks);
+    updateBoard();
+    return;
+  }
+
+  if (e.target.closest('#clear-picks')) {
+    draftPicks = [];
+    updateBoard();
+    return;
+  }
+
+  if (e.target.closest('#submit-picks')) {
+    onSubmitRoster();
   }
 }
 
@@ -238,7 +293,7 @@ async function onSubmitRoster() {
   if (!v.valid || !session?.pin) return;
 
   isSaving = true;
-  renderBoard();
+  updateBoard();
 
   try {
     const result = await submitRoster(session.playerId, session.pin, draftPicks);
@@ -252,7 +307,7 @@ async function onSubmitRoster() {
     showError(err.message);
   } finally {
     isSaving = false;
-    renderBoard();
+    updateBoard();
   }
 }
 
@@ -299,7 +354,7 @@ function renderTierSection(tier, selectedIds, locked) {
   const count = getTierCounts(selectedIds)[tier];
 
   return `
-    <section class="tier-section ${meta.color}">
+    <section class="tier-section ${meta.color}" data-tier="${tier}">
       <div class="tier-heading">
         <div>
           <span class="tier-badge">${meta.label}</span>
