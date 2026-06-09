@@ -1155,6 +1155,12 @@ body {
   font-size: 0.9rem;
 }
 
+.error-banner .error-retry {
+  margin-left: 0.5rem;
+  color: var(--danger);
+  vertical-align: baseline;
+}
+
 .toast {
   position: fixed;
   bottom: 1.5rem;

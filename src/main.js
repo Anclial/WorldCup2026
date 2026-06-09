@@ -66,7 +66,7 @@ async function init() {
       showLogin();
     }
   } catch (err) {
-    showError(err.message);
+    showError(err.message, { retry: true });
     showLogin();
   } finally {
     showLoading(false);
@@ -856,9 +856,22 @@ function showLoading(show) {
   $('#loading').classList.toggle('hidden', !show);
 }
 
-function showError(msg) {
+function showError(msg, { retry = false } = {}) {
   const el = $('#error');
-  el.textContent = msg;
+  el.replaceChildren();
+  el.append(msg);
+  if (retry) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-ghost btn-sm error-retry';
+    btn.textContent = 'Try again';
+    btn.addEventListener('click', () => {
+      hideError();
+      init();
+    });
+    el.append(' ');
+    el.append(btn);
+  }
   el.classList.remove('hidden');
 }
 

@@ -1,6 +1,13 @@
 import { APPS_SCRIPT_URL, isAppsScriptConfigured } from './config.js';
 
-async function request(method, body, urlOverride) {
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 2000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function request(method, body, urlOverride, attempt = 1) {
   if (!isAppsScriptConfigured()) {
     throw new Error(
       'APPS_SCRIPT_URL is not set. Open src/config.js and paste your deployed Web App URL (the one ending in /exec).'
@@ -27,8 +34,12 @@ async function request(method, body, urlOverride) {
   try {
     res = await fetch(url, options);
   } catch {
+    if (attempt < MAX_ATTEMPTS) {
+      await sleep(RETRY_DELAY_MS * attempt);
+      return request(method, body, urlOverride, attempt + 1);
+    }
     throw new Error(
-      'Could not reach Google Apps Script. Check that APPS_SCRIPT_URL in src/config.js is your real /exec URL, deployment access is set to "Anyone", and nothing is blocking script.google.com.'
+      `Could not reach Google Apps Script after ${MAX_ATTEMPTS} tries. Open your /exec URL in a new tab — you should see JSON starting with {"apiVersion":2. If that works, hard-refresh this page (Cmd+Shift+R).`
     );
   }
 
@@ -50,20 +61,25 @@ export function fetchData() {
   return request('GET');
 }
 
+function joinViaGet(name, pin, circle) {
+  const params = new URLSearchParams({
+    action: 'join',
+    name,
+    pin: pin || '',
+    circle: circle || '',
+    t: String(Date.now()),
+  });
+  return request('GET', null, `${APPS_SCRIPT_URL}?${params}`);
+}
+
 export async function join(name, pin, circle) {
   const payload = { action: 'join', name, pin: pin || '', circle: circle || '' };
   try {
     return await request('POST', payload);
   } catch (err) {
-    if (String(err.message).includes('Unknown action')) {
-      const params = new URLSearchParams({
-        action: 'join',
-        name,
-        pin: pin || '',
-        circle: circle || '',
-        t: String(Date.now()),
-      });
-      return request('GET', null, `${APPS_SCRIPT_URL}?${params}`);
+    const message = String(err.message);
+    if (message.includes('Unknown action') || message.includes('Could not reach')) {
+      return joinViaGet(name, pin, circle);
     }
     throw err;
   }
