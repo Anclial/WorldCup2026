@@ -27,6 +27,11 @@ async function init() {
 
   try {
     await loadData();
+    if (appData.apiVersion !== 2) {
+      showError(
+        'Google Apps Script needs redeploying. Open apps-script/Code.gs, paste it into Apps Script, save, then Deploy → Manage deployments → Edit → New version → Deploy. Look for "apiVersion":2 in your Web App URL.'
+      );
+    }
 
     const session = getSession();
     if (session) {
@@ -54,6 +59,7 @@ async function init() {
 async function loadData() {
   const data = await fetchData();
   appData = {
+    apiVersion: data.apiVersion || 1,
     players: data.players || [],
     rosters: {},
     rosterLocked: {},

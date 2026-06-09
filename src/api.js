@@ -1,6 +1,6 @@
 import { APPS_SCRIPT_URL, isAppsScriptConfigured } from './config.js';
 
-async function request(method, body) {
+async function request(method, body, urlOverride) {
   if (!isAppsScriptConfigured()) {
     throw new Error(
       'APPS_SCRIPT_URL is not set. Open src/config.js and paste your deployed Web App URL (the one ending in /exec).'
@@ -8,9 +8,10 @@ async function request(method, body) {
   }
 
   const url =
-    method === 'GET'
+    urlOverride ||
+    (method === 'GET'
       ? `${APPS_SCRIPT_URL}?t=${Date.now()}`
-      : APPS_SCRIPT_URL;
+      : APPS_SCRIPT_URL);
 
   const options = {
     method,
@@ -49,8 +50,22 @@ export function fetchData() {
   return request('GET');
 }
 
-export function join(name, pin) {
-  return request('POST', { action: 'join', name, pin: pin || '' });
+export async function join(name, pin) {
+  try {
+    return await request('POST', { action: 'join', name, pin: pin || '' });
+  } catch (err) {
+    // Fallback: older deployments sometimes only handle GET
+    if (String(err.message).includes('Unknown action')) {
+      const params = new URLSearchParams({
+        action: 'join',
+        name,
+        pin: pin || '',
+        t: String(Date.now()),
+      });
+      return request('GET', null, `${APPS_SCRIPT_URL}?${params}`);
+    }
+    throw err;
+  }
 }
 
 export function submitRoster(playerId, pin, teamIds) {

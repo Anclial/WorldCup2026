@@ -79,9 +79,18 @@ const TEAMS = {
 
 // ─── HTTP handlers ───────────────────────────────────────────────────────────
 
-function doGet() {
+function doGet(e) {
   try {
     migrateSheets();
+
+    // GET fallback for join (use if POST returns "Unknown action")
+    const params = (e && e.parameter) || {};
+    if (params.action === 'join') {
+      const result = joinPlayer(params.name, params.pin);
+      if (result.error) return jsonResponse({ error: result.error });
+      return jsonResponse(result);
+    }
+
     recalculateAllPoints();
     return jsonResponse(getAllData());
   } catch (err) {
@@ -95,13 +104,14 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     const action = body.action;
 
-    if (action === 'join') {
+    // v2 API — if you see "Unknown action", redeploy this file as a new version
+    if (action === 'join' || (action === 'login' && body.name)) {
       const result = joinPlayer(body.name, body.pin);
       if (result.error) return jsonResponse({ error: result.error });
       return jsonResponse(result);
     }
 
-    if (action === 'submitRoster') {
+    if (action === 'submitRoster' || action === 'submitPicks') {
       const player = authenticatePlayer(body.playerId, body.pin);
       if (!player) return jsonResponse({ error: 'Invalid player or PIN' });
       if (isEntriesLocked()) {
@@ -261,6 +271,7 @@ function getAllData() {
     .sort((a, b) => b.points - a.points);
 
   return {
+    apiVersion: 2,
     players,
     rosters,
     standings,
