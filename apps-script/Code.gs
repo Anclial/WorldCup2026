@@ -165,7 +165,7 @@ function setupSheets() {
   seedResults(ss);
 }
 
-var VALID_CIRCLES = ['friends', 'family', 'colleague'];
+var VALID_CIRCLES = ['family', 'friends', 'work'];
 
 function migrateSheets() {
   const ss = getSpreadsheet();
@@ -302,7 +302,8 @@ function formatDateTime(value) {
 // ─── Join & auth ─────────────────────────────────────────────────────────────
 
 function normalizeCircle(value) {
-  const circle = String(value || '').trim().toLowerCase();
+  var circle = String(value || '').trim().toLowerCase();
+  if (circle === 'colleague') circle = 'work';
   return VALID_CIRCLES.indexOf(circle) !== -1 ? circle : '';
 }
 
@@ -341,7 +342,7 @@ function joinPlayer(name, pin, circle) {
 
   const playerCircle = normalizeCircle(circle);
   if (!playerCircle) {
-    return { error: 'Please select how you know Jason (Friends, Family, or Colleague).' };
+    return { error: 'Please select how you know Jason (Family, Friends, or Work).' };
   }
 
   const playerId = createPlayerId(trimmed);

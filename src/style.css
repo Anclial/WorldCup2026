@@ -288,52 +288,72 @@ body {
   outline-offset: 1px;
 }
 
-.circle-field {
-  border: none;
-  margin: 0;
-  padding: 0;
+.welcome-card {
+  max-width: 480px;
+  margin: 2rem auto;
+  text-align: center;
 }
 
-.circle-field legend {
-  font-size: 0.8rem;
-  font-weight: 600;
+.welcome-title {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+.welcome-subtitle {
+  margin: 0 0 1.5rem;
+  font-size: 1rem;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.5rem;
 }
 
-.circle-options {
+.circle-picker {
   display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
-.circle-option {
-  flex: 1;
-  min-width: 90px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 0.65rem 0.75rem;
+.circle-pick-btn {
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 1rem 1.25rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
+  color: var(--text);
   cursor: pointer;
-  font-size: 0.88rem;
-  font-weight: 600;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.circle-option:has(input:checked) {
+.circle-pick-btn:hover {
   border-color: var(--accent);
   background: var(--accent-dim);
-  color: var(--text);
 }
 
-.circle-option input {
-  accent-color: var(--accent);
+.circle-pick-btn:active {
+  transform: scale(0.98);
+}
+
+.back-btn {
+  margin-bottom: 0.75rem;
+}
+
+.selected-circle-badge {
+  display: inline-block;
+  margin: 0 0 0.5rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid #00c2a844;
+  border-radius: 999px;
 }
 
 .user-circle {

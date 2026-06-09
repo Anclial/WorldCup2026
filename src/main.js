@@ -26,6 +26,7 @@ let appData = {
 let isSaving = false;
 let boardMounted = false;
 let boardClickBound = false;
+let selectedCircle = '';
 
 init();
 
@@ -106,26 +107,45 @@ function isRosterLocked(playerId) {
 }
 
 function bindEvents() {
+  renderCirclePicker();
   $('#login-form').addEventListener('submit', onLogin);
   $('#tabs').addEventListener('click', onTabClick);
-  $('#pin-input').addEventListener('input', updateCircleFieldVisibility);
-  updateCircleFieldVisibility();
+  $('#back-to-welcome').addEventListener('click', showWelcome);
 }
 
-function updateCircleFieldVisibility() {
-  const hasPin = $('#pin-input').value.trim().length > 0;
-  const field = $('#circle-field');
-  if (!field) return;
-  field.classList.toggle('hidden', hasPin);
-  field.querySelectorAll('input[name="circle"]').forEach((el) => {
-    el.required = !hasPin;
-    if (hasPin) el.checked = false;
+function renderCirclePicker() {
+  const picker = $('#circle-picker');
+  picker.innerHTML = PLAYER_CIRCLES.map(
+    (circle) => `
+    <button type="button" class="circle-pick-btn" data-circle="${circle.id}">
+      ${escapeHtml(circle.label)}
+    </button>`
+  ).join('');
+
+  picker.querySelectorAll('.circle-pick-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      selectedCircle = btn.dataset.circle;
+      showJoinForm(selectedCircle);
+    });
   });
 }
 
-function getSelectedCircle() {
-  const selected = document.querySelector('input[name="circle"]:checked');
-  return selected ? selected.value : '';
+function showWelcome() {
+  $('#welcome-section').classList.remove('hidden');
+  $('#login-section').classList.add('hidden');
+  hideError();
+}
+
+function showJoinForm(circleId) {
+  const circle = CIRCLE_BY_ID[circleId];
+  if (!circle) return;
+
+  selectedCircle = circleId;
+  $('#selected-circle-badge').textContent = circle.label;
+  $('#welcome-section').classList.add('hidden');
+  $('#login-section').classList.remove('hidden');
+  $('#name-input').focus();
+  hideError();
 }
 
 async function onLogin(e) {
@@ -134,8 +154,12 @@ async function onLogin(e) {
 
   const name = $('#name-input').value.trim();
   const pin = $('#pin-input').value.trim();
-  const circle = pin ? '' : getSelectedCircle();
+  const circle = pin ? '' : selectedCircle;
   if (!name) return;
+  if (!pin && !circle) {
+    showError('Please go back and choose how you know Jason.');
+    return;
+  }
 
   const btn = e.target.querySelector('button[type="submit"]');
   btn.disabled = true;
@@ -197,6 +221,7 @@ function escapeHtml(str) {
 }
 
 function enterApp(player) {
+  $('#welcome-section').classList.add('hidden');
   $('#login-section').classList.add('hidden');
   $('#tabs').classList.remove('hidden');
   renderUserBar(player);
@@ -616,7 +641,7 @@ function renderLeaderboard() {
   section.innerHTML = `
     <div class="card leaderboard-card">
       <h2>Leaderboards</h2>
-      <p class="section-desc">Separate standings for Friends, Family, and Colleagues.</p>
+      <p class="section-desc">Separate standings for Family, Friends, and Work.</p>
       <div class="leaderboard-groups">
         ${PLAYER_CIRCLES.map(
           (circle) => `
@@ -760,8 +785,9 @@ function formatPoints(n) {
 }
 
 function showLogin() {
-  $('#login-section').classList.remove('hidden');
   $('#tabs').classList.add('hidden');
+  selectedCircle = '';
+  showWelcome();
 }
 
 function showLoading(show) {
