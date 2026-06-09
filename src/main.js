@@ -1,4 +1,5 @@
 import { fetchData, join, submitRoster } from './api.js';
+import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
 import { RULES, TEAM_BY_ID, TIERS } from './data/teams.js';
 import {
   getDisableReason,
@@ -14,7 +15,14 @@ const $ = (sel) => document.querySelector(sel);
 
 let activeTab = 'board';
 let draftPicks = [];
-let appData = { players: [], rosters: {}, rosterLocked: {}, standings: [], entriesLocked: false };
+let appData = {
+  players: [],
+  rosters: {},
+  rosterLocked: {},
+  standings: [],
+  standingsByCircle: {},
+  entriesLocked: false,
+};
 let isSaving = false;
 let boardMounted = false;
 let boardClickBound = false;
@@ -39,6 +47,7 @@ async function init() {
       if (stillValid) {
         enterApp({
           ...session,
+          circle: session.circle || getPlayerCircle(session.playerId),
           rosterLocked: isRosterLocked(session.playerId),
         });
       } else {
@@ -64,12 +73,32 @@ async function loadData() {
     rosters: {},
     rosterLocked: {},
     standings: data.standings || [],
+    standingsByCircle: data.standingsByCircle || buildStandingsByCircle(data),
     entriesLocked: !!data.entriesLocked,
   };
   (data.rosters || []).forEach((r) => {
     appData.rosters[r.playerId] = r.teamIds || [];
     appData.rosterLocked[r.playerId] = !!r.locked;
   });
+}
+
+function buildStandingsByCircle(data) {
+  const players = data.players || [];
+  const standings = data.standings || [];
+  const byCircle = {};
+  PLAYER_CIRCLES.forEach((circle) => {
+    byCircle[circle.id] = standings
+      .filter((row) => {
+        const player = players.find((p) => p.playerId === row.playerId);
+        return (player?.circle || row.circle) === circle.id;
+      })
+      .sort((a, b) => b.points - a.points);
+  });
+  return byCircle;
+}
+
+function getPlayerCircle(playerId) {
+  return appData.players.find((p) => p.playerId === playerId)?.circle || '';
 }
 
 function isRosterLocked(playerId) {
@@ -79,6 +108,24 @@ function isRosterLocked(playerId) {
 function bindEvents() {
   $('#login-form').addEventListener('submit', onLogin);
   $('#tabs').addEventListener('click', onTabClick);
+  $('#pin-input').addEventListener('input', updateCircleFieldVisibility);
+  updateCircleFieldVisibility();
+}
+
+function updateCircleFieldVisibility() {
+  const hasPin = $('#pin-input').value.trim().length > 0;
+  const field = $('#circle-field');
+  if (!field) return;
+  field.classList.toggle('hidden', hasPin);
+  field.querySelectorAll('input[name="circle"]').forEach((el) => {
+    el.required = !hasPin;
+    if (hasPin) el.checked = false;
+  });
+}
+
+function getSelectedCircle() {
+  const selected = document.querySelector('input[name="circle"]:checked');
+  return selected ? selected.value : '';
 }
 
 async function onLogin(e) {
@@ -87,13 +134,14 @@ async function onLogin(e) {
 
   const name = $('#name-input').value.trim();
   const pin = $('#pin-input').value.trim();
+  const circle = pin ? '' : getSelectedCircle();
   if (!name) return;
 
   const btn = e.target.querySelector('button[type="submit"]');
   btn.disabled = true;
 
   try {
-    const result = await join(name, pin);
+    const result = await join(name, pin, circle);
 
     if (result.isNew) {
       setSession(result.player, result.pin, { rosterLocked: false, isNewPlayer: true });
@@ -172,9 +220,13 @@ function renderUserBar(player) {
   const pinHtml = shouldShowPinReminder(player)
     ? `<span class="user-pin">PIN <strong>${escapeHtml(player.pin)}</strong></span>`
     : '';
+  const circleLabel = player.circle ? CIRCLE_BY_ID[player.circle]?.label : '';
+  const circleHtml = circleLabel
+    ? `<span class="user-circle">${escapeHtml(circleLabel)}</span>`
+    : '';
   bar.innerHTML = `
     <div class="user-bar-info">
-      <span class="user-greeting">Playing as <strong>${escapeHtml(player.name)}</strong></span>
+      <span class="user-greeting">Playing as <strong>${escapeHtml(player.name)}</strong>${circleHtml ? ` · ${circleHtml}` : ''}</span>
       ${pinHtml}
     </div>
     <button id="sign-out" class="btn btn-ghost btn-sm">Sign out</button>
@@ -408,7 +460,11 @@ async function onSubmitRoster() {
       clearDraft(session.playerId);
     }
     setSession(
-      { playerId: session.playerId, name: session.name },
+      {
+        playerId: session.playerId,
+        name: session.name,
+        circle: session.circle || getPlayerCircle(session.playerId),
+      },
       session.pin,
       { rosterLocked: true, isNewPlayer: false }
     );
@@ -514,90 +570,119 @@ function renderTeamCard(team, selectedIds, locked) {
   `;
 }
 
-function renderLeaderboard() {
-  const section = $('#leaderboard-section');
-  const rows = appData.standings.map((row, i) => {
+function renderLeaderboardTable(rows) {
+  if (!rows.length) {
+    return '<p class="leaderboard-empty">No players in this group yet.</p>';
+  }
+
+  const enriched = rows.map((row, i) => {
     const picks = appData.rosters[row.playerId] || [];
     const teamNames = picks.map((id) => TEAM_BY_ID[id]?.name).filter(Boolean);
     return { ...row, rank: i + 1, teams: teamNames };
   });
 
+  return `
+    <div class="leaderboard-table-wrap">
+      <table class="leaderboard-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Player</th>
+            <th>Points</th>
+            <th>Roster</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${enriched
+            .map(
+              (r) => `
+            <tr class="${r.rank <= 3 ? 'top-' + r.rank : ''}">
+              <td class="rank">${r.rank}</td>
+              <td class="player-name">${escapeHtml(r.name)}</td>
+              <td class="points">${formatPoints(r.points)}</td>
+              <td class="roster-preview">${r.teams.length ? r.teams.map(escapeHtml).join(', ') : '<em>No roster yet</em>'}</td>
+            </tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderLeaderboard() {
+  const section = $('#leaderboard-section');
+
   section.innerHTML = `
     <div class="card leaderboard-card">
-      <h2>Leaderboard</h2>
-      <p class="section-desc">Points update as you enter results in the Google Sheet.</p>
-      <div class="leaderboard-table-wrap">
-        <table class="leaderboard-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Player</th>
-              <th>Points</th>
-              <th>Roster</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              rows.length
-                ? rows
-                    .map(
-                      (r) => `
-              <tr class="${r.rank <= 3 ? 'top-' + r.rank : ''}">
-                <td class="rank">${r.rank}</td>
-                <td class="player-name">${r.name}</td>
-                <td class="points">${formatPoints(r.points)}</td>
-                <td class="roster-preview">${r.teams.length ? r.teams.join(', ') : '<em>No roster yet</em>'}</td>
-              </tr>`
-                    )
-                    .join('')
-                : '<tr><td colspan="4" class="empty-row">No standings yet.</td></tr>'
-            }
-          </tbody>
-        </table>
+      <h2>Leaderboards</h2>
+      <p class="section-desc">Separate standings for Friends, Family, and Colleagues.</p>
+      <div class="leaderboard-groups">
+        ${PLAYER_CIRCLES.map(
+          (circle) => `
+          <section class="leaderboard-group">
+            <h3>${circle.label}</h3>
+            ${renderLeaderboardTable(appData.standingsByCircle[circle.id] || [])}
+          </section>`
+        ).join('')}
       </div>
     </div>
   `;
 }
 
+function renderPlayerRosterCard(p) {
+  return `
+    <article class="player-roster-card">
+      <header>
+        <h3>${escapeHtml(p.name)}</h3>
+        <span class="pick-count">${p.picks.length}/6 teams</span>
+      </header>
+      ${
+        p.picks.length
+          ? `<ul class="player-pick-list">
+          ${p.picks
+            .map(
+              (t) => `
+            <li class="${TIERS[t.tier].color}">
+              <span class="pick-name">${escapeHtml(t.name)}</span>
+              <span class="pick-meta">Grp ${t.group} · ${TIERS[t.tier].label}</span>
+            </li>`
+            )
+            .join('')}
+        </ul>`
+          : '<p class="no-picks">Hasn\'t submitted a roster yet.</p>'
+      }
+    </article>
+  `;
+}
+
 function renderEveryone() {
   const section = $('#everyone-section');
-  const players = appData.players.map((p) => ({
-    ...p,
-    picks: (appData.rosters[p.playerId] || []).map((id) => TEAM_BY_ID[id]).filter(Boolean),
-  }));
 
   section.innerHTML = `
     <div class="card">
       <h2>All Rosters</h2>
-      <p class="section-desc">See who everyone backed.</p>
-      <div class="all-rosters">
-        ${players
-          .map(
-            (p) => `
-          <article class="player-roster-card">
-            <header>
-              <h3>${p.name}</h3>
-              <span class="pick-count">${p.picks.length}/6 teams</span>
-            </header>
-            ${
-              p.picks.length
-                ? `<ul class="player-pick-list">
-                ${p.picks
-                  .map(
-                    (t) => `
-                  <li class="${TIERS[t.tier].color}">
-                    <span class="pick-name">${t.name}</span>
-                    <span class="pick-meta">Grp ${t.group} · ${TIERS[t.tier].label}</span>
-                  </li>`
-                  )
-                  .join('')}
-              </ul>`
-                : '<p class="no-picks">Hasn\'t submitted a roster yet.</p>'
-            }
-          </article>`
-          )
-          .join('')}
-      </div>
+      <p class="section-desc">See who everyone backed, grouped by circle.</p>
+      ${PLAYER_CIRCLES.map((circle) => {
+        const players = appData.players
+          .filter((p) => p.circle === circle.id)
+          .map((p) => ({
+            ...p,
+            picks: (appData.rosters[p.playerId] || []).map((id) => TEAM_BY_ID[id]).filter(Boolean),
+          }));
+        return `
+          <section class="roster-group">
+            <h3>${circle.label}</h3>
+            <div class="all-rosters">
+              ${
+                players.length
+                  ? players.map(renderPlayerRosterCard).join('')
+                  : '<p class="no-picks">No players in this group yet.</p>'
+              }
+            </div>
+          </section>
+        `;
+      }).join('')}
     </div>
   `;
 }

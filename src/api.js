@@ -50,16 +50,17 @@ export function fetchData() {
   return request('GET');
 }
 
-export async function join(name, pin) {
+export async function join(name, pin, circle) {
+  const payload = { action: 'join', name, pin: pin || '', circle: circle || '' };
   try {
-    return await request('POST', { action: 'join', name, pin: pin || '' });
+    return await request('POST', payload);
   } catch (err) {
-    // Fallback: older deployments sometimes only handle GET
     if (String(err.message).includes('Unknown action')) {
       const params = new URLSearchParams({
         action: 'join',
         name,
         pin: pin || '',
+        circle: circle || '',
         t: String(Date.now()),
       });
       return request('GET', null, `${APPS_SCRIPT_URL}?${params}`);

@@ -33,13 +33,29 @@
         <div id="error" class="error-banner hidden"></div>
 
         <section id="login-section" class="card login-card">
-          <h2>Join the board</h2>
-          <p class="hint">First time? Enter your name and you'll get a PIN. Returning? Enter your name and PIN.</p>
+          <h2>Join the Contest</h2>
           <form id="login-form" class="login-form">
             <label>
               Your name
-              <input type="text" id="name-input" required autocomplete="name" placeholder="e.g. Jason" maxlength="40" />
+              <input type="text" id="name-input" required autocomplete="name" placeholder="e.g. Alex" maxlength="40" />
             </label>
+            <fieldset id="circle-field" class="circle-field">
+              <legend>How do you know Jason?</legend>
+              <div class="circle-options">
+                <label class="circle-option">
+                  <input type="radio" name="circle" value="friends" required />
+                  <span>Friends</span>
+                </label>
+                <label class="circle-option">
+                  <input type="radio" name="circle" value="family" />
+                  <span>Family</span>
+                </label>
+                <label class="circle-option">
+                  <input type="radio" name="circle" value="colleague" />
+                  <span>Colleague</span>
+                </label>
+              </div>
+            </fieldset>
             <label>
               PIN <span class="label-note">(your PIN will generate when you first enter your name)</span>
               <input type="text" id="pin-input" inputmode="numeric" autocomplete="off" maxlength="4" />

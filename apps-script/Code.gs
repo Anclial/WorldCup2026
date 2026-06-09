@@ -9,7 +9,7 @@
  *      Execute as: Me | Who has access: Anyone
  *
  * SHEET TABS:
- * Players:  player_id | name | pin | created_at
+ * Players:  player_id | name | pin | created_at | circle
  * Rosters:  player_id | team_1 … team_6 | points | updated_at | locked
  * Results:  team_id | group_wins | group_draws | knockout_wins
  * Config:   key | value
@@ -86,7 +86,7 @@ function doGet(e) {
     // GET fallback for join (use if POST returns "Unknown action")
     const params = (e && e.parameter) || {};
     if (params.action === 'join') {
-      const result = joinPlayer(params.name, params.pin);
+      const result = joinPlayer(params.name, params.pin, params.circle);
       if (result.error) return jsonResponse({ error: result.error });
       return jsonResponse(result);
     }
@@ -106,7 +106,7 @@ function doPost(e) {
 
     // v2 API — if you see "Unknown action", redeploy this file as a new version
     if (action === 'join' || (action === 'login' && body.name)) {
-      const result = joinPlayer(body.name, body.pin);
+      const result = joinPlayer(body.name, body.pin, body.circle);
       if (result.error) return jsonResponse({ error: result.error });
       return jsonResponse(result);
     }
@@ -146,7 +146,7 @@ function setupSheets() {
   const ss = getSpreadsheet();
 
   ensureSheet(ss, TABS.PLAYERS, [
-    ['player_id', 'name', 'pin', 'created_at'],
+    ['player_id', 'name', 'pin', 'created_at', 'circle'],
   ]);
 
   ensureSheet(ss, TABS.ROSTERS, [
@@ -165,9 +165,12 @@ function setupSheets() {
   seedResults(ss);
 }
 
+var VALID_CIRCLES = ['friends', 'family', 'colleague'];
+
 function migrateSheets() {
   const ss = getSpreadsheet();
   ensureColumn(ss, TABS.PLAYERS, 'created_at');
+  ensureColumn(ss, TABS.PLAYERS, 'circle');
   ensureColumn(ss, TABS.ROSTERS, 'locked');
 }
 
@@ -247,6 +250,7 @@ function getAllData() {
   const players = getSheetData(TABS.PLAYERS).map((p) => ({
     playerId: String(p.player_id),
     name: String(p.name || ''),
+    circle: normalizeCircle(p.circle),
   }));
 
   const rosters = getSheetData(TABS.ROSTERS).map((r) => ({
@@ -265,16 +269,25 @@ function getAllData() {
       return {
         playerId: p.playerId,
         name: p.name,
+        circle: p.circle,
         points: roster ? roster.points : 0,
       };
     })
     .sort((a, b) => b.points - a.points);
+
+  const standingsByCircle = {};
+  VALID_CIRCLES.forEach(function(circle) {
+    standingsByCircle[circle] = standings
+      .filter(function(s) { return s.circle === circle; })
+      .sort(function(a, b) { return b.points - a.points; });
+  });
 
   return {
     apiVersion: 2,
     players,
     rosters,
     standings,
+    standingsByCircle: standingsByCircle,
     entriesLocked: isEntriesLocked(),
   };
 }
@@ -288,7 +301,12 @@ function formatDateTime(value) {
 
 // ─── Join & auth ─────────────────────────────────────────────────────────────
 
-function joinPlayer(name, pin) {
+function normalizeCircle(value) {
+  const circle = String(value || '').trim().toLowerCase();
+  return VALID_CIRCLES.indexOf(circle) !== -1 ? circle : '';
+}
+
+function joinPlayer(name, pin, circle) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return { error: 'Please enter your name.' };
   if (trimmed.length < 2) return { error: 'Name must be at least 2 characters.' };
@@ -305,8 +323,13 @@ function joinPlayer(name, pin) {
     if (String(existing.pin) !== pinStr) {
       return { error: 'Incorrect PIN for that name.' };
     }
+    const playerCircle = normalizeCircle(existing.circle);
     return {
-      player: { playerId: String(existing.player_id), name: String(existing.name) },
+      player: {
+        playerId: String(existing.player_id),
+        name: String(existing.name),
+        circle: playerCircle,
+      },
       isNew: false,
       rosterLocked: isRosterLocked(existing.player_id),
     };
@@ -316,13 +339,18 @@ function joinPlayer(name, pin) {
     return { error: 'Name not found. Leave PIN blank to join as a new player.' };
   }
 
+  const playerCircle = normalizeCircle(circle);
+  if (!playerCircle) {
+    return { error: 'Please select how you know Jason (Friends, Family, or Colleague).' };
+  }
+
   const playerId = createPlayerId(trimmed);
   const newPin = generatePin();
   const sheet = getSpreadsheet().getSheetByName(TABS.PLAYERS);
-  sheet.appendRow([playerId, trimmed, newPin, new Date()]);
+  sheet.appendRow([playerId, trimmed, newPin, new Date(), playerCircle]);
 
   return {
-    player: { playerId: playerId, name: trimmed },
+    player: { playerId: playerId, name: trimmed, circle: playerCircle },
     pin: newPin,
     isNew: true,
     rosterLocked: false,
