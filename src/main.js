@@ -1,7 +1,12 @@
 import { fetchData, join, submitRoster } from './api.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
 import { WIN_ODDS_RANK } from './data/odds.js';
-import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS } from './data/scoring.js';
+import {
+  GROUP_STAGE_POINTS,
+  KNOCKOUT_MULTIPLIERS,
+  KNOCKOUT_ROUNDS,
+  getTierScoringSummary,
+} from './data/scoring.js';
 import { RULES, TEAM_BY_ID, TIERS } from './data/teams.js';
 import {
   getDisableReason,
@@ -353,27 +358,28 @@ function mountBoard() {
   const section = $('#board-section');
 
   section.innerHTML = `
-    ${renderPinBannerHtml(session)}
     ${globallyLocked && !playerLocked ? '<div class="locked-banner">🔒 Entries are closed — rosters can no longer be submitted.</div>' : ''}
-    <div class="board-layout">
+    <div class="board-layout ${readonly ? 'board-readonly' : ''}">
+      <div class="pin-slot">${renderPinBannerHtml(session)}</div>
+      <div class="board-header">
+        <h2>Select 6 Teams (2 from each Tier)</h2>
+        <p>${readonly ? 'Your roster is locked — no further changes allowed.' : 'Tap teams to add or remove. Conflicts are blocked automatically.'}</p>
+      </div>
+      <div class="lock-warning-slot">
+        ${!playerLocked && !globallyLocked ? '<div class="lock-warning"></div>' : ''}
+      </div>
       <aside class="roster-panel card">
         <h2>Your Roster</h2>
         <p class="roster-sub">Exactly 6 teams · max 1 per group</p>
         <div class="roster-slots"></div>
         <div class="tier-progress"></div>
         <div class="roster-validation"></div>
-        ${!playerLocked && !globallyLocked ? '<div class="lock-warning"></div>' : ''}
         <div class="roster-actions">
           ${!readonly ? '<button type="button" id="clear-picks" class="btn btn-ghost">Clear all</button>' : ''}
           <button type="button" id="submit-picks" class="btn btn-primary">Lock in roster</button>
         </div>
       </aside>
-
-      <div class="selection-board ${readonly ? 'board-readonly' : ''}">
-        <div class="board-header">
-          <h2>Select 6 Teams (2 from each Tier)</h2>
-          <p>${readonly ? 'Your roster is locked — no further changes allowed.' : 'Tap teams to add or remove. Conflicts are blocked automatically.'}</p>
-        </div>
+      <div class="selection-tiers">
         ${[1, 2, 3].map((tier) => renderTierSection(tier, draftPicks, readonly)).join('')}
       </div>
     </div>
@@ -584,6 +590,7 @@ function renderTierSection(tier, selectedIds, locked) {
         <div>
           <span class="tier-badge">${meta.label}</span>
           <h3>${meta.name}</h3>
+          <p class="tier-scoring-hint">${getTierScoringSummary(tier)}</p>
         </div>
         <div class="tier-meta">
           <span class="tier-multiplier">${meta.multiplier} knockout</span>

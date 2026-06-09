@@ -18,3 +18,9 @@ export const KNOCKOUT_MULTIPLIERS = {
   2: { label: 'Tier 2 Contenders', value: '1.5×' },
   3: { label: 'Tier 3 Underdogs', value: '2.5×' },
 };
+
+export function getTierScoringSummary(tier) {
+  const group = GROUP_STAGE_POINTS[tier];
+  const knockout = KNOCKOUT_MULTIPLIERS[tier];
+  return `Group win ${group.win} · draw ${group.draw} · Knockout ${knockout.value} base`;
+}

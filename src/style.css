@@ -431,22 +431,50 @@ body {
 .board-layout {
   display: grid;
   grid-template-columns: 300px 1fr;
-  gap: 1.5rem;
+  grid-template-areas:
+    "pin header"
+    "warning header"
+    "roster tiers";
+  gap: 0.75rem 1.5rem;
   align-items: start;
+}
+
+.pin-slot {
+  grid-area: pin;
+}
+
+.board-header {
+  grid-area: header;
+}
+
+.lock-warning-slot {
+  grid-area: warning;
+}
+
+.roster-panel {
+  grid-area: roster;
+}
+
+.selection-tiers {
+  grid-area: tiers;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 @media (max-width: 900px) {
   .board-layout {
     grid-template-columns: 1fr;
-  }
-
-  /* Teams first on mobile — roster summary below */
-  .selection-board {
-    order: 1;
+    grid-template-areas:
+      "pin"
+      "header"
+      "warning"
+      "tiers"
+      "roster";
   }
 
   .roster-panel {
-    order: 2;
+    position: static;
   }
 }
 
@@ -569,7 +597,7 @@ body {
   border: 1px solid #ff6b6b44;
   border-radius: var(--radius-sm);
   padding: 0.75rem 0.85rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   font-size: 0.82rem;
   color: var(--text-muted);
 }
@@ -587,7 +615,7 @@ body {
 }
 
 .pin-banner {
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   padding: 1rem 1.1rem;
   background: var(--accent-dim);
   border: 1px solid #00c2a844;
@@ -644,10 +672,6 @@ body {
 
 /* Selection board */
 
-.board-header {
-  margin-bottom: 1.25rem;
-}
-
 .board-header h2 {
   margin: 0 0 0.25rem;
   font-family: var(--font-display);
@@ -661,7 +685,7 @@ body {
 }
 
 .tier-section {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0;
   padding: 1.25rem;
   border-radius: var(--radius);
   border: 1px solid var(--border);
@@ -694,6 +718,14 @@ body {
 .tier-heading h3 {
   margin: 0;
   font-size: 1.1rem;
+}
+
+.tier-scoring-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--accent);
+  line-height: 1.35;
 }
 
 .tier-meta {
