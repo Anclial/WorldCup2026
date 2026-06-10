@@ -68,8 +68,7 @@ async function init() {
   }
 }
 
-async function loadData() {
-  const data = await fetchData();
+function applyAppDataFromResponse(data) {
   appData = {
     apiVersion: data.apiVersion || 1,
     players: data.players || [],
@@ -83,6 +82,55 @@ async function loadData() {
     appData.rosters[r.playerId] = r.teamIds || [];
     appData.rosterLocked[r.playerId] = !!r.locked;
   });
+}
+
+async function loadData() {
+  applyAppDataFromResponse(await fetchData());
+}
+
+function mergePlayerIntoAppData(player) {
+  if (!player?.playerId) return;
+
+  const existing = appData.players.find((p) => p.playerId === player.playerId);
+  if (existing) {
+    if (player.name) existing.name = player.name;
+    if (player.circle) existing.circle = player.circle;
+  } else {
+    appData.players.push({
+      playerId: player.playerId,
+      name: player.name,
+      circle: player.circle || '',
+    });
+  }
+
+  const standing = appData.standings.find((s) => s.playerId === player.playerId);
+  if (standing) {
+    if (player.name) standing.name = player.name;
+    if (player.circle) standing.circle = player.circle;
+  } else {
+    appData.standings.push({
+      playerId: player.playerId,
+      name: player.name,
+      circle: player.circle || '',
+      points: 0,
+    });
+  }
+
+  appData.standingsByCircle = buildStandingsByCircle(appData);
+}
+
+function getPlayerCircleValue(playerId) {
+  const player = appData.players.find((p) => p.playerId === playerId);
+  const standing = appData.standings.find((s) => s.playerId === playerId);
+  return player?.circle || standing?.circle || '';
+}
+
+function getUnassignedPlayers() {
+  return appData.players.filter((p) => !getPlayerCircleValue(p.playerId));
+}
+
+function getUnassignedStandings() {
+  return appData.standings.filter((s) => !getPlayerCircleValue(s.playerId));
 }
 
 function buildStandingsByCircle(data) {
@@ -168,6 +216,13 @@ async function onLogin(e) {
 
   try {
     const result = await join(name, pin, circle);
+    mergePlayerIntoAppData(result.player);
+
+    try {
+      await loadData();
+    } catch {
+      // Keep optimistic player data if refresh fails right after join.
+    }
 
     if (result.isNew) {
       setSession(result.player, result.pin, { rosterLocked: false, isNewPlayer: true });
@@ -529,10 +584,12 @@ async function onSubmitRoster() {
   try {
     const result = await submitRoster(session.playerId, session.pin, draftPicks);
     if (result.data) {
+      applyAppDataFromResponse(result.data);
+    } else {
       await loadData();
-      appData.rosterLocked[session.playerId] = true;
-      clearDraft(session.playerId);
     }
+    appData.rosterLocked[session.playerId] = true;
+    clearDraft(session.playerId);
     setSession(
       {
         playerId: session.playerId,
@@ -701,6 +758,15 @@ function renderLeaderboard() {
             ${renderLeaderboardTable(appData.standingsByCircle[circle.id] || [])}
           </section>`
         ).join('')}
+        ${
+          getUnassignedStandings().length
+            ? `
+          <section class="leaderboard-group">
+            <h3>Other</h3>
+            ${renderLeaderboardTable(getUnassignedStandings())}
+          </section>`
+            : ''
+        }
       </div>
     </div>
   `;
@@ -741,7 +807,7 @@ function renderEveryone() {
       <p class="section-desc">See who everyone backed, grouped by circle.</p>
       ${PLAYER_CIRCLES.map((circle) => {
         const players = appData.players
-          .filter((p) => p.circle === circle.id)
+          .filter((p) => getPlayerCircleValue(p.playerId) === circle.id)
           .map((p) => ({
             ...p,
             picks: (appData.rosters[p.playerId] || []).map((id) => TEAM_BY_ID[id]).filter(Boolean),
@@ -759,6 +825,23 @@ function renderEveryone() {
           </section>
         `;
       }).join('')}
+      ${
+        getUnassignedPlayers().length
+          ? `
+        <section class="roster-group">
+          <h3>Other</h3>
+          <div class="all-rosters">
+            ${getUnassignedPlayers()
+              .map((p) => ({
+                ...p,
+                picks: (appData.rosters[p.playerId] || []).map((id) => TEAM_BY_ID[id]).filter(Boolean),
+              }))
+              .map(renderPlayerRosterCard)
+              .join('')}
+          </div>
+        </section>`
+          : ''
+      }
     </div>
   `;
 }
