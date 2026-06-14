@@ -10,8 +10,8 @@ export function getSession() {
   }
 }
 
-export function setSession(player, pin, extras = {}) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ ...player, pin, ...extras }));
+export function setSession(player, extras = {}) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ ...player, ...extras }));
 }
 
 export function clearSession() {

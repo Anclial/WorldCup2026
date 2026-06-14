@@ -25,11 +25,15 @@ let appData = {
   standings: [],
   standingsByCircle: {},
   entriesLocked: false,
+  scoresSyncedAt: '',
+  autoScores: false,
 };
 let isSaving = false;
 let boardMounted = false;
 let boardClickBound = false;
 let selectedCircle = '';
+let loadingCount = 0;
+let loadingMessage = 'Loading contest data…';
 
 init();
 
@@ -48,17 +52,16 @@ async function init() {
       circle: session.circle || getPlayerCircle(session.playerId),
       rosterLocked: isRosterLocked(session.playerId),
     });
-    refreshDataInBackground();
-    return;
+  } else {
+    showLogin();
   }
 
-  showLogin();
-  refreshDataInBackground();
+  await refreshDataInBackground();
 }
 
 async function refreshDataInBackground() {
   const hadCache = !!getCachedData();
-  if (!hadCache) showLoading(true);
+  showLoading(true, 'Loading contest data…');
 
   try {
     await loadData({ force: true });
@@ -90,7 +93,7 @@ async function refreshDataInBackground() {
       showToast('Using saved data — live refresh failed. Tap Try again if scores look stale.');
     }
   } finally {
-    if (!hadCache) showLoading(false);
+    showLoading(false);
   }
 }
 
@@ -103,6 +106,8 @@ function applyAppDataFromResponse(data) {
     standings: data.standings || [],
     standingsByCircle: data.standingsByCircle || buildStandingsByCircle(data),
     entriesLocked: !!data.entriesLocked,
+    scoresSyncedAt: data.scoresSyncedAt || '',
+    autoScores: !!data.autoScores,
   };
   (data.rosters || []).forEach((r) => {
     appData.rosters[r.playerId] = r.teamIds || [];
@@ -196,11 +201,16 @@ function bindEvents() {
   renderCirclePicker();
   $('#login-form').addEventListener('submit', onLogin);
   $('#tabs').addEventListener('click', onTabClick);
-  $('#back-to-welcome').addEventListener('click', showWelcome);
+}
+
+function normalizeFirstName(value) {
+  return String(value || '').trim().split(/\s+/)[0];
 }
 
 function renderCirclePicker() {
   const picker = $('#circle-picker');
+  if (!picker) return;
+
   picker.innerHTML = PLAYER_CIRCLES.map(
     (circle) => `
     <button type="button" class="circle-pick-btn" data-circle="${circle.id}">
@@ -211,26 +221,19 @@ function renderCirclePicker() {
   picker.querySelectorAll('.circle-pick-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       selectedCircle = btn.dataset.circle;
-      showJoinForm(selectedCircle);
+      picker.querySelectorAll('.circle-pick-btn').forEach((el) => {
+        el.classList.toggle('active', el.dataset.circle === selectedCircle);
+      });
     });
   });
 }
 
-function showWelcome() {
-  $('#welcome-section').classList.remove('hidden');
-  $('#login-section').classList.add('hidden');
-  hideError();
-}
-
-function showJoinForm(circleId) {
-  const circle = CIRCLE_BY_ID[circleId];
-  if (!circle) return;
-
-  selectedCircle = circleId;
-  $('#selected-circle-badge').textContent = circle.label;
-  $('#welcome-section').classList.add('hidden');
+function showLogin() {
   $('#login-section').classList.remove('hidden');
-  $('#name-input').focus();
+  $('#circle-step').classList.add('hidden');
+  $('#tabs').classList.add('hidden');
+  $('#user-bar').classList.add('hidden');
+  selectedCircle = '';
   hideError();
 }
 
@@ -238,78 +241,47 @@ async function onLogin(e) {
   e.preventDefault();
   hideError();
 
-  const name = $('#name-input').value.trim();
-  const pin = $('#pin-input').value.trim();
-  const circle = pin ? '' : selectedCircle;
-  if (!name) return;
-  if (!pin && !circle) {
-    showError('Please go back and choose how you know Jason.');
+  const name = normalizeFirstName($('#name-input').value);
+  if (!name || name.length < 2) {
+    showError('Enter your first name (at least 2 characters).');
+    return;
+  }
+
+  const circleStepVisible = !$('#circle-step').classList.contains('hidden');
+  if (circleStepVisible && !selectedCircle) {
+    showError('Pick Family, Friends, or Work to continue.');
     return;
   }
 
   const btn = e.target.querySelector('button[type="submit"]');
   btn.disabled = true;
+  showLoading(true, 'Signing you in…');
 
   try {
-    const result = await join(name, pin, circle);
-    mergePlayerIntoAppData(result.player);
-
-    if (result.isNew) {
-      setSession(result.player, result.pin, { rosterLocked: false, isNewPlayer: true });
-      enterApp({ ...result.player, pin: result.pin, rosterLocked: false, isNewPlayer: true });
-    } else {
-      setSession(result.player, pin, {
-        rosterLocked: !!result.rosterLocked,
-        isNewPlayer: false,
-      });
-      enterApp({
-        ...result.player,
-        pin,
-        rosterLocked: !!result.rosterLocked,
-        isNewPlayer: false,
-      });
+    const result = await join(name, selectedCircle);
+    if (result.needsCircle) {
+      $('#circle-step').classList.remove('hidden');
+      selectedCircle = '';
+      renderCirclePicker();
+      return;
     }
+
+    mergePlayerIntoAppData(result.player);
+    setSession(result.player, {
+      rosterLocked: !!result.rosterLocked,
+      isNewPlayer: !!result.isNew,
+    });
+    enterApp({
+      ...result.player,
+      rosterLocked: !!result.rosterLocked,
+      isNewPlayer: !!result.isNew,
+    });
   } catch (err) {
     showError(err.message);
   } finally {
+    showLoading(false);
     btn.disabled = false;
   }
-}
-
-function shouldShowPinReminder(session) {
-  if (!session?.pin) return false;
-  if (isRosterLocked(session.playerId)) return false;
-  return true;
-}
-
-function renderPinBannerHtml(session) {
-  if (!shouldShowPinReminder(session)) return '';
-
-  const isNew = !!session.isNewPlayer;
-  return `
-    <div class="pin-banner ${isNew ? 'pin-banner--new' : ''}" role="status">
-      <div class="pin-banner-inner">
-        <div class="pin-banner-main">
-          ${isNew ? '<span class="pin-banner-welcome">Welcome! Your PIN is</span>' : '<span class="pin-banner-welcome">Your PIN</span>'}
-          <span class="pin-banner-code">${escapeHtml(session.pin)}</span>
-        </div>
-        <p class="pin-banner-note">Remember this PIN — you'll need it to sign back in.</p>
-      </div>
-    </div>
-  `;
-}
-
-function renderPinBannerSlot() {
-  const slot = $('#pin-banner-slot');
-  if (!slot) return;
-  const html = renderPinBannerHtml(getSession());
-  if (!html) {
-    slot.classList.add('hidden');
-    slot.innerHTML = '';
-    return;
-  }
-  slot.classList.remove('hidden');
-  slot.innerHTML = html;
 }
 
 function updateBoardHeaderBar() {
@@ -336,11 +308,9 @@ function escapeHtml(str) {
 }
 
 function enterApp(player) {
-  $('#welcome-section').classList.add('hidden');
   $('#login-section').classList.add('hidden');
   $('#tabs').classList.remove('hidden');
   renderUserBar(player);
-  renderPinBannerSlot();
 
   const locked = isRosterLocked(player.playerId);
   if (locked) {
@@ -358,9 +328,6 @@ function enterApp(player) {
 function renderUserBar(player) {
   const bar = $('#user-bar');
   bar.classList.remove('hidden');
-  const pinHtml = shouldShowPinReminder(player)
-    ? `<span class="user-pin">PIN <strong>${escapeHtml(player.pin)}</strong></span>`
-    : '';
   const circleLabel = player.circle ? CIRCLE_BY_ID[player.circle]?.label : '';
   const circleHtml = circleLabel
     ? `<span class="user-circle">${escapeHtml(circleLabel)}</span>`
@@ -368,7 +335,6 @@ function renderUserBar(player) {
   bar.innerHTML = `
     <div class="user-bar-info">
       <span class="user-greeting">Playing as <strong>${escapeHtml(player.name)}</strong>${circleHtml ? ` · ${circleHtml}` : ''}</span>
-      ${pinHtml}
     </div>
     <button id="sign-out" class="btn btn-ghost btn-sm">Sign out</button>
   `;
@@ -399,10 +365,13 @@ async function switchTab(tab) {
   $('#odds-section').classList.toggle('hidden', tab !== 'odds');
 
   if (tab === 'leaderboard' || tab === 'everyone') {
+    showLoading(true, 'Updating standings…');
     try {
       await refreshData({ force: !isCacheFresh() });
     } catch (err) {
       showToast('Could not refresh data: ' + err.message);
+    } finally {
+      showLoading(false);
     }
   }
 
@@ -595,7 +564,7 @@ function onBoardClick(e) {
 async function onSubmitRoster() {
   const session = getSession();
   const v = validateRoster(draftPicks);
-  if (!v.valid || !session?.pin) return;
+  if (!v.valid || !session?.playerId) return;
   if (isRosterLocked(session.playerId)) return;
 
   const emptySlots = 6 - draftPicks.length;
@@ -611,9 +580,10 @@ async function onSubmitRoster() {
 
   isSaving = true;
   updateBoard();
+  showLoading(true, 'Locking in your roster…');
 
   try {
-    const result = await submitRoster(session.playerId, session.pin, draftPicks);
+    const result = await submitRoster(session.playerId, draftPicks);
     if (result.data) {
       setCachedData(result.data);
       applyAppDataFromResponse(result.data);
@@ -628,17 +598,16 @@ async function onSubmitRoster() {
         name: session.name,
         circle: session.circle || getPlayerCircle(session.playerId),
       },
-      session.pin,
       { rosterLocked: true, isNewPlayer: false }
     );
     showToast('Roster locked!');
     renderUserBar(getSession());
-    renderPinBannerSlot();
     boardMounted = false;
     renderBoard();
   } catch (err) {
     showError(err.message);
   } finally {
+    showLoading(false);
     isSaving = false;
     updateBoard();
   }
@@ -775,13 +744,33 @@ function renderLeaderboardTable(rows) {
   `;
 }
 
+function formatScoresSyncedAt(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 function renderLeaderboard() {
   const section = $('#leaderboard-section');
+  const syncNote = appData.autoScores
+    ? `<p class="scores-sync-note">Scores update automatically from live World Cup results${
+        appData.scoresSyncedAt
+          ? ` · Last synced ${escapeHtml(formatScoresSyncedAt(appData.scoresSyncedAt))}`
+          : ''
+      }.</p>`
+    : '';
 
   section.innerHTML = `
     <div class="card leaderboard-card">
       <h2>Leaderboards</h2>
       <p class="section-desc">Separate standings for Family, Friends, and Work.</p>
+      ${syncNote}
       <div class="leaderboard-groups">
         ${PLAYER_CIRCLES.map(
           (circle) => `
@@ -884,6 +873,23 @@ function renderRules() {
       <h2>Rules of Entry</h2>
 
       <section class="rules-block">
+        <h3>Signing in</h3>
+        <ul>
+          <li>Enter your <strong>first name</strong> only — the same name on the roster list.</li>
+          <li>If you're on the list, you'll see your existing picks.</li>
+          <li>New names can join and make a fresh roster.</li>
+        </ul>
+      </section>
+
+      <section class="rules-block">
+        <h3>Scoring</h3>
+        <ul>
+          <li>Points update <strong>automatically</strong> from live World Cup match results — no manual score entry needed.</li>
+          <li>Standings refresh about every 15 minutes during the tournament.</li>
+        </ul>
+      </section>
+
+      <section class="rules-block">
         <h3>Your roster</h3>
         <ul>
           <li>Choose <strong>exactly 6 teams</strong> total.</li>
@@ -974,14 +980,26 @@ function formatPoints(n) {
   return Number.isInteger(n) ? String(n) : Number(n).toFixed(1);
 }
 
-function showLogin() {
-  $('#tabs').classList.add('hidden');
-  selectedCircle = '';
-  showWelcome();
-}
+function showLoading(show, message = 'Loading contest data…') {
+  if (show) {
+    loadingCount += 1;
+    loadingMessage = message;
+  } else {
+    loadingCount = Math.max(0, loadingCount - 1);
+  }
 
-function showLoading(show) {
-  $('#loading').classList.toggle('hidden', !show);
+  const overlay = $('#loading-overlay');
+  const messageEl = overlay?.querySelector('.loading-message');
+  const visible = loadingCount > 0;
+
+  overlay?.classList.toggle('hidden', !visible);
+  document.body.classList.toggle('is-loading', visible);
+  overlay?.setAttribute('aria-busy', visible ? 'true' : 'false');
+  overlay?.setAttribute('aria-hidden', visible ? 'false' : 'true');
+
+  if (messageEl && visible) {
+    messageEl.textContent = loadingMessage;
+  }
 }
 
 function showError(msg, { retry = false } = {}) {

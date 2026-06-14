@@ -13,6 +13,26 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <div
+      id="loading-overlay"
+      class="loading-overlay"
+      role="alertdialog"
+      aria-modal="true"
+      aria-busy="true"
+      aria-live="assertive"
+      aria-label="Loading"
+    >
+      <div class="loading-overlay-inner">
+        <div class="loading-spinner" aria-hidden="true">
+          <div class="loading-spinner-ring"></div>
+          <span class="loading-spinner-icon">🏆</span>
+        </div>
+        <p class="loading-title">LOADING</p>
+        <p class="loading-message">Loading contest data…</p>
+        <p class="loading-hint">This can take a minute — please wait</p>
+      </div>
+    </div>
+
     <div id="app">
       <header class="header">
         <div class="header-inner">
@@ -28,34 +48,34 @@
       </header>
 
       <main class="main">
-        <div id="loading" class="loading hidden">Loading…</div>
         <div id="toast" class="toast hidden" role="status"></div>
         <div id="error" class="error-banner hidden"></div>
 
-        <section id="welcome-section" class="card welcome-card">
-          <h2 class="welcome-title">Welcome to the World Cup 2026 Contest</h2>
-          <p class="welcome-subtitle">How do you know Jason?</p>
-          <div id="circle-picker" class="circle-picker"></div>
-        </section>
-
-        <section id="login-section" class="card login-card hidden">
-          <button type="button" id="back-to-welcome" class="btn btn-ghost btn-sm back-btn">← Change group</button>
-          <p id="selected-circle-badge" class="selected-circle-badge"></p>
+        <section id="login-section" class="card login-card">
           <h2>Join the Contest</h2>
+          <p class="login-desc">
+            Enter your <strong>first name</strong> only. If you're on the roster, you'll see your picks.
+            New names can join and make fresh picks.
+          </p>
           <form id="login-form" class="login-form">
             <label>
-              Your name
-              <input type="text" id="name-input" required autocomplete="name" placeholder="e.g. Alex" maxlength="40" />
+              First name
+              <input
+                type="text"
+                id="name-input"
+                required
+                autocomplete="given-name"
+                placeholder="e.g. Matt"
+                maxlength="24"
+              />
             </label>
-            <label>
-              PIN <span class="label-note">(your PIN will generate when you first enter your name)</span>
-              <input type="text" id="pin-input" inputmode="numeric" autocomplete="off" maxlength="4" />
-            </label>
-            <button type="submit" class="btn btn-primary">Join game</button>
+            <div id="circle-step" class="circle-step hidden">
+              <p class="circle-step-label">You're new — how do you know Jason?</p>
+              <div id="circle-picker" class="circle-picker"></div>
+            </div>
+            <button type="submit" class="btn btn-primary">Continue</button>
           </form>
         </section>
-
-        <div id="pin-banner-slot" class="pin-banner-slot hidden"></div>
 
         <nav id="tabs" class="tabs hidden">
           <button class="tab active" data-tab="board">My Roster</button>

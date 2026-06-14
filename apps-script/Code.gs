@@ -9,7 +9,7 @@
  *      Execute as: Me | Who has access: Anyone
  *
  * SHEET TABS:
- * Players:  player_id | name | pin | created_at | circle
+ * Players:  player_id | name | created_at | circle
  * Rosters:  player_id | team_1 … team_6 | points | updated_at | locked
  * Results:  team_id | group_wins | group_draws | r32 | r16 | qf | sf | final | champion
  *   (knockout columns: 1 = team reached that round)
@@ -102,11 +102,20 @@ function doGet(e) {
     // GET fallback for join (use if POST returns "Unknown action")
     const params = (e && e.parameter) || {};
     if (params.action === 'join') {
-      const result = joinPlayer(params.name, params.pin, params.circle);
+      const result = joinPlayer(params.name, params.circle);
       if (result.error) return jsonResponse({ error: result.error });
       clearDataCache();
       return jsonResponse(result);
     }
+
+    if (params.action === 'syncScores') {
+      const result = syncResultsFromApi(true);
+      clearDataCache();
+      return jsonResponse(result);
+    }
+
+    var syncResult = syncResultsIfStale();
+    if (syncResult && syncResult.ok) clearDataCache();
 
     const cached = getCachedAllData();
     if (cached) return jsonResponse(cached);
@@ -127,15 +136,15 @@ function doPost(e) {
 
     // v2 API — if you see "Unknown action", redeploy this file as a new version
     if (action === 'join' || (action === 'login' && body.name)) {
-      const result = joinPlayer(body.name, body.pin, body.circle);
+      const result = joinPlayer(body.name, body.circle);
       if (result.error) return jsonResponse({ error: result.error });
       clearDataCache();
       return jsonResponse(result);
     }
 
     if (action === 'submitRoster' || action === 'submitPicks') {
-      const player = authenticatePlayer(body.playerId, body.pin);
-      if (!player) return jsonResponse({ error: 'Invalid player or PIN' });
+      const player = authenticatePlayer(body.playerId);
+      if (!player) return jsonResponse({ error: 'Player not found' });
       if (isEntriesLocked()) {
         return jsonResponse({ error: 'Entries are closed — rosters can no longer be submitted.' });
       }
@@ -171,7 +180,7 @@ function setupSheets() {
   const ss = getSpreadsheet();
 
   ensureSheet(ss, TABS.PLAYERS, [
-    ['player_id', 'name', 'pin', 'created_at', 'circle'],
+    ['player_id', 'name', 'created_at', 'circle'],
   ]);
 
   ensureSheet(ss, TABS.ROSTERS, [
@@ -380,6 +389,8 @@ function getAllData() {
     standings,
     standingsByCircle: standingsByCircle,
     entriesLocked: entriesLockedRow ? isTruthy(entriesLockedRow.value) : false,
+    scoresSyncedAt: getLastResultsSyncIso(),
+    autoScores: true,
   };
 }
 
@@ -415,23 +426,18 @@ function normalizeCircle(value) {
   return VALID_CIRCLES.indexOf(circle) !== -1 ? circle : '';
 }
 
-function joinPlayer(name, pin, circle) {
-  const trimmed = String(name || '').trim();
-  if (!trimmed) return { error: 'Please enter your name.' };
-  if (trimmed.length < 2) return { error: 'Name must be at least 2 characters.' };
+function normalizeFirstName(name) {
+  return String(name || '').trim().split(/\s+/)[0];
+}
 
-  const pinStr = String(pin || '').trim();
+function joinPlayer(name, circle) {
+  const trimmed = normalizeFirstName(name);
+  if (!trimmed) return { error: 'Please enter your first name.' };
+  if (trimmed.length < 2) return { error: 'First name must be at least 2 characters.' };
+
   const existing = findPlayerByName(trimmed);
 
   if (existing) {
-    if (!pinStr) {
-      return {
-        error: 'That name is already registered. Enter your PIN, or use a different name.',
-      };
-    }
-    if (String(existing.pin) !== pinStr) {
-      return { error: 'Incorrect PIN for that name.' };
-    }
     const playerCircle = normalizeCircle(existing.circle);
     return {
       player: {
@@ -444,30 +450,24 @@ function joinPlayer(name, pin, circle) {
     };
   }
 
-  if (pinStr) {
-    return { error: 'Name not found. Leave PIN blank to join as a new player.' };
-  }
-
   const playerCircle = normalizeCircle(circle);
   if (!playerCircle) {
-    return { error: 'Please select how you know Jason (Family, Friends, or Work).' };
+    return { needsCircle: true, name: trimmed };
   }
 
   const playerId = createPlayerId(trimmed);
-  const newPin = generatePin();
   const sheet = getSpreadsheet().getSheetByName(TABS.PLAYERS);
-  sheet.appendRow([playerId, trimmed, newPin, new Date(), playerCircle]);
+  sheet.appendRow([playerId, trimmed, new Date(), playerCircle]);
 
   return {
     player: { playerId: playerId, name: trimmed, circle: playerCircle },
-    pin: newPin,
     isNew: true,
     rosterLocked: false,
   };
 }
 
 function findPlayerByName(name) {
-  const normalized = name.trim().toLowerCase();
+  const normalized = normalizeFirstName(name).toLowerCase();
   return getSheetData(TABS.PLAYERS).find(
     (r) => String(r.name).trim().toLowerCase() === normalized
   );
@@ -489,15 +489,10 @@ function createPlayerId(name) {
   return id;
 }
 
-function generatePin() {
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
-
-function authenticatePlayer(playerId, pin) {
+function authenticatePlayer(playerId) {
   const rows = getSheetData(TABS.PLAYERS);
   const match = rows.find((r) => String(r.player_id) === String(playerId));
   if (!match) return null;
-  if (String(match.pin) !== String(pin)) return null;
   return { playerId: String(match.player_id), name: String(match.name) };
 }
 
@@ -636,4 +631,218 @@ function recalculateAllPoints() {
   if (pointValues.length) {
     sheet.getRange(2, pointsCol + 1, pointValues.length, 1).setValues(pointValues);
   }
+}
+
+// ─── Auto score sync (worldcup26.ir) ─────────────────────────────────────────
+
+var WORLDCUP_API_BASE = 'https://worldcup26.ir';
+var RESULTS_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+
+var API_TEAM_ID_TO_SLUG = {
+  '1': 'mexico', '2': 'south-africa', '3': 'south-korea', '4': 'czech-republic',
+  '5': 'canada', '6': 'bosnia', '7': 'qatar', '8': 'switzerland',
+  '9': 'brazil', '10': 'morocco', '11': 'haiti', '12': 'scotland',
+  '13': 'usa', '14': 'paraguay', '15': 'australia', '16': 'turkey',
+  '17': 'germany', '18': 'curacao', '19': 'ivory-coast', '20': 'ecuador',
+  '21': 'netherlands', '22': 'japan', '23': 'sweden', '24': 'tunisia',
+  '25': 'belgium', '26': 'egypt', '27': 'iran', '28': 'new-zealand',
+  '29': 'spain', '30': 'cape-verde', '31': 'saudi-arabia', '32': 'uruguay',
+  '33': 'france', '34': 'senegal', '35': 'iraq', '36': 'norway',
+  '37': 'argentina', '38': 'algeria', '39': 'austria', '40': 'jordan',
+  '41': 'portugal', '42': 'dr-congo', '43': 'uzbekistan', '44': 'colombia',
+  '45': 'england', '46': 'croatia', '47': 'ghana', '48': 'panama',
+};
+
+function getLastResultsSyncIso() {
+  var ts = PropertiesService.getScriptProperties().getProperty('last_results_sync');
+  if (!ts) return '';
+  return Utilities.formatDate(new Date(Number(ts)), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+function syncResultsIfStale() {
+  var props = PropertiesService.getScriptProperties();
+  var last = Number(props.getProperty('last_results_sync') || 0);
+  if (Date.now() - last < RESULTS_SYNC_INTERVAL_MS) return { skipped: true };
+  return syncResultsFromApi(false);
+}
+
+function syncResultsFromApi(force) {
+  var props = PropertiesService.getScriptProperties();
+  if (!force) {
+    var last = Number(props.getProperty('last_results_sync') || 0);
+    if (Date.now() - last < RESULTS_SYNC_INTERVAL_MS) {
+      return { skipped: true, scoresSyncedAt: getLastResultsSyncIso() };
+    }
+  }
+
+  var groupsPayload = fetchWorldCupJson_('/get/groups');
+  var gamesPayload = { games: [] };
+  try {
+    gamesPayload = fetchWorldCupJson_('/get/games');
+  } catch (err) {
+    // Knockout data is optional if groups sync succeeds.
+  }
+
+  var computed = computeResultsFromWorldCupApi_(groupsPayload, gamesPayload);
+  writeResultsToSheet_(computed);
+  recalculateAllPoints();
+  props.setProperty('last_results_sync', String(Date.now()));
+
+  return {
+    ok: true,
+    updatedTeams: Object.keys(computed).length,
+    scoresSyncedAt: getLastResultsSyncIso(),
+  };
+}
+
+function fetchWorldCupJson_(path) {
+  var url = WORLDCUP_API_BASE + path;
+  var res = UrlFetchApp.fetch(url, {
+    muteHttpExceptions: true,
+    followRedirects: true,
+    headers: { Accept: 'application/json' },
+  });
+  var code = res.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error('World Cup API ' + path + ' returned HTTP ' + code);
+  }
+  return JSON.parse(res.getContentText());
+}
+
+function emptyResultRow_() {
+  return { group_wins: 0, group_draws: 0, r32: 0, r16: 0, qf: 0, sf: 0, final: 0, champion: 0 };
+}
+
+function slugFromApiTeamId_(apiTeamId) {
+  return API_TEAM_ID_TO_SLUG[String(apiTeamId)] || '';
+}
+
+function isGameFinished_(game) {
+  var finished = String(game.finished || '').toUpperCase();
+  return finished === 'TRUE' || finished === '1' || game.time_elapsed === 'finished';
+}
+
+function compareGroupRows_(a, b) {
+  var ptsDiff = (Number(b.pts) || 0) - (Number(a.pts) || 0);
+  if (ptsDiff !== 0) return ptsDiff;
+  var gdDiff = (Number(b.gd) || 0) - (Number(a.gd) || 0);
+  if (gdDiff !== 0) return gdDiff;
+  return (Number(b.gf) || 0) - (Number(a.gf) || 0);
+}
+
+function computeResultsFromWorldCupApi_(groupsPayload, gamesPayload) {
+  var results = {};
+  Object.keys(TEAMS).forEach(function(id) {
+    results[id] = emptyResultRow_();
+  });
+
+  var groups = Array.isArray(groupsPayload) ? groupsPayload : (groupsPayload.groups || []);
+  var games = Array.isArray(gamesPayload) ? gamesPayload : (gamesPayload.games || []);
+  var knockoutTypes = ['r32', 'r16', 'qf', 'sf', 'final'];
+  var advanceOnWin = { r32: 'r16', r16: 'qf', qf: 'sf', sf: 'final', final: 'champion' };
+
+  groups.forEach(function(group) {
+    var teams = group.teams || [];
+    teams.forEach(function(entry) {
+      var slug = slugFromApiTeamId_(entry.team_id);
+      if (!slug || !results[slug]) return;
+      results[slug].group_wins = Number(entry.w) || 0;
+      results[slug].group_draws = Number(entry.d) || 0;
+    });
+
+    var allFinished = teams.length === 4 && teams.every(function(t) { return Number(t.mp) >= 3; });
+    if (allFinished) {
+      teams.slice().sort(compareGroupRows_).slice(0, 2).forEach(function(entry) {
+        var slug = slugFromApiTeamId_(entry.team_id);
+        if (slug && results[slug]) results[slug].r32 = 1;
+      });
+    }
+  });
+
+  games.forEach(function(game) {
+    var type = String(game.type || '');
+    if (type === 'group') return;
+
+    var homeId = String(game.home_team_id || '0');
+    var awayId = String(game.away_team_id || '0');
+    [homeId, awayId].forEach(function(apiId) {
+      if (apiId === '0') return;
+      var slug = slugFromApiTeamId_(apiId);
+      if (!slug || !results[slug]) return;
+      if (type === 'r32' || knockoutTypes.indexOf(type) !== -1) results[slug].r32 = 1;
+      if (type === 'final') results[slug].final = 1;
+    });
+
+    if (!isGameFinished_(game) || homeId === '0' || awayId === '0') return;
+
+    var homeScore = Number(game.home_score);
+    var awayScore = Number(game.away_score);
+    if (isNaN(homeScore) || isNaN(awayScore)) return;
+
+    var winnerId = null;
+    if (homeScore > awayScore) winnerId = homeId;
+    else if (awayScore > homeScore) winnerId = awayId;
+    if (!winnerId || knockoutTypes.indexOf(type) === -1) return;
+
+    var winnerSlug = slugFromApiTeamId_(winnerId);
+    if (!winnerSlug || !results[winnerSlug]) return;
+
+    var advanceKey = advanceOnWin[type];
+    if (advanceKey) results[winnerSlug][advanceKey] = 1;
+    if (type === 'sf') results[winnerSlug].final = 1;
+  });
+
+  return results;
+}
+
+function writeResultsToSheet_(computed) {
+  var sheet = getSpreadsheet().getSheetByName(TABS.RESULTS);
+  if (!sheet) throw new Error('Missing sheet tab: ' + TABS.RESULTS);
+
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 1) return;
+
+  var headers = values[0].map(normalizeHeader);
+  var teamIdCol = headers.indexOf('team_id');
+  if (teamIdCol === -1) throw new Error('Results sheet missing team_id column');
+
+  var roundKeys = ['group_wins', 'group_draws', 'r32', 'r16', 'qf', 'sf', 'final', 'champion'];
+  var colByKey = {};
+  roundKeys.forEach(function(key) {
+    colByKey[key] = headers.indexOf(key);
+  });
+
+  for (var i = 1; i < values.length; i++) {
+    var teamId = String(values[i][teamIdCol] || '').trim();
+    var row = computed[teamId];
+    if (!row) continue;
+
+    roundKeys.forEach(function(key) {
+      var col = colByKey[key];
+      if (col !== -1) values[i][col] = row[key] || 0;
+    });
+  }
+
+  if (values.length > 1) {
+    sheet.getRange(2, 1, values.length - 1, headers.length).setValues(values.slice(1));
+  }
+}
+
+/** Run once in Apps Script to refresh scores every 30 minutes during the tournament. */
+function installAutoScoreSyncTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === 'syncResultsFromApiTrigger') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  ScriptApp.newTrigger('syncResultsFromApiTrigger')
+    .timeBased()
+    .everyMinutes(30)
+    .create();
+}
+
+function syncResultsFromApiTrigger() {
+  syncResultsFromApi(true);
+  clearDataCache();
 }

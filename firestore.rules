@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Paste into Firebase Console → Firestore → Rules.
+// Tighten with Cloud Functions later; open enough for the pick'em app to read/write.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /players/{playerId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    match /rosters/{playerId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    match /results/{teamId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if docId == 'settings';
+    }
+  }
+}
