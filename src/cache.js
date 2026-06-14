@@ -1,5 +1,5 @@
 const CACHE_KEY = 'wc2026_data_cache';
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 5 * 60_000;
 
 export function getCachedData() {
   try {

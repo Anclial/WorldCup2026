@@ -57,7 +57,9 @@ async function init() {
 }
 
 async function refreshDataInBackground() {
-  showLoading(true);
+  const hadCache = !!getCachedData();
+  if (!hadCache) showLoading(true);
+
   try {
     await loadData({ force: true });
     if (appData.apiVersion !== 2) {
@@ -81,14 +83,14 @@ async function refreshDataInBackground() {
       });
     }
   } catch (err) {
-    if (!getCachedData()) {
+    if (!hadCache) {
       showError(err.message, { retry: true });
       if (!getSession()) showLogin();
     } else {
       showToast('Using saved data — live refresh failed. Tap Try again if scores look stale.');
     }
   } finally {
-    showLoading(false);
+    if (!hadCache) showLoading(false);
   }
 }
 

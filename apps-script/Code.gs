@@ -104,10 +104,16 @@ function doGet(e) {
     if (params.action === 'join') {
       const result = joinPlayer(params.name, params.pin, params.circle);
       if (result.error) return jsonResponse({ error: result.error });
+      clearDataCache();
       return jsonResponse(result);
     }
 
-    return jsonResponse(getAllData());
+    const cached = getCachedAllData();
+    if (cached) return jsonResponse(cached);
+
+    const data = getAllData();
+    setCachedAllData(data);
+    return jsonResponse(data);
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }
@@ -123,6 +129,7 @@ function doPost(e) {
     if (action === 'join' || (action === 'login' && body.name)) {
       const result = joinPlayer(body.name, body.pin, body.circle);
       if (result.error) return jsonResponse({ error: result.error });
+      clearDataCache();
       return jsonResponse(result);
     }
 
@@ -141,7 +148,10 @@ function doPost(e) {
 
       saveRoster(body.playerId, body.teamIds, true);
       recalculateAllPoints();
-      return jsonResponse({ success: true, data: getAllData() });
+      clearDataCache();
+      const data = getAllData();
+      setCachedAllData(data);
+      return jsonResponse({ success: true, data: data });
     }
 
     return jsonResponse({ error: 'Unknown action' });
@@ -254,6 +264,31 @@ function ensureSheet(ss, name, rows) {
 
 function getSpreadsheet() {
   return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
+var DATA_CACHE_KEY = 'allData_v2';
+var DATA_CACHE_TTL = 120;
+
+function getCachedAllData() {
+  var cached = CacheService.getScriptCache().get(DATA_CACHE_KEY);
+  if (!cached) return null;
+  try {
+    return JSON.parse(cached);
+  } catch (err) {
+    return null;
+  }
+}
+
+function setCachedAllData(data) {
+  try {
+    CacheService.getScriptCache().put(DATA_CACHE_KEY, JSON.stringify(data), DATA_CACHE_TTL);
+  } catch (err) {
+    // Payload may exceed cache size limits — skip caching.
+  }
+}
+
+function clearDataCache() {
+  CacheService.getScriptCache().remove(DATA_CACHE_KEY);
 }
 
 function getSheetData(sheetName) {

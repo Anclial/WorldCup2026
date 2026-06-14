@@ -2,13 +2,14 @@ import { APPS_SCRIPT_URL, isAppsScriptConfigured } from './config.js';
 
 const MAX_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 800;
-const REQUEST_TIMEOUT_MS = 25_000;
+const GET_TIMEOUT_MS = 65_000;
+const POST_TIMEOUT_MS = 45_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
+function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
@@ -38,8 +39,9 @@ async function request(method, body, urlOverride, attempt = 1) {
   }
 
   let res;
+  const timeoutMs = method === 'GET' ? GET_TIMEOUT_MS : POST_TIMEOUT_MS;
   try {
-    res = await fetchWithTimeout(url, options);
+    res = await fetchWithTimeout(url, options, timeoutMs);
   } catch (err) {
     const timedOut = err?.name === 'AbortError';
     if (attempt < MAX_ATTEMPTS) {
