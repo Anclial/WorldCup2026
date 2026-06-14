@@ -97,7 +97,7 @@ const TEAMS = {
 
 function doGet(e) {
   try {
-    migrateSheets();
+    migrateSheetsOnce();
 
     // GET fallback for join (use if POST returns "Unknown action")
     const params = (e && e.parameter) || {};
@@ -107,7 +107,6 @@ function doGet(e) {
       return jsonResponse(result);
     }
 
-    recalculateAllPoints();
     return jsonResponse(getAllData());
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
@@ -116,7 +115,7 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    migrateSheets();
+    migrateSheetsOnce();
     const body = JSON.parse(e.postData.contents);
     const action = body.action;
 
@@ -192,6 +191,13 @@ function migrateSheets() {
     ensureColumn(ss, TABS.RESULTS, round.key);
   });
   ensureMissingResultRows(ss);
+}
+
+function migrateSheetsOnce() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('schema_v2') === 'done') return;
+  migrateSheets();
+  props.setProperty('schema_v2', 'done');
 }
 
 function ensureColumn(ss, tabName, columnName) {
@@ -290,13 +296,14 @@ function isRosterLocked(playerId) {
 }
 
 function getAllData() {
-  const players = getSheetData(TABS.PLAYERS).map((p) => ({
+  const ss = getSpreadsheet();
+  const players = readSheetRows(ss, TABS.PLAYERS).map((p) => ({
     playerId: String(p.player_id),
     name: String(p.name || ''),
     circle: normalizeCircle(p.circle),
   }));
 
-  const rosters = getSheetData(TABS.ROSTERS).map((r) => ({
+  const rosters = readSheetRows(ss, TABS.ROSTERS).map((r) => ({
     playerId: String(r.player_id),
     teamIds: [r.team_1, r.team_2, r.team_3, r.team_4, r.team_5, r.team_6]
       .map((t) => String(t || '').trim())
@@ -306,9 +313,12 @@ function getAllData() {
     locked: isTruthy(r.locked),
   }));
 
+  const rosterByPlayer = {};
+  rosters.forEach(function(r) { rosterByPlayer[r.playerId] = r; });
+
   const standings = players
     .map((p) => {
-      const roster = rosters.find((r) => r.playerId === p.playerId);
+      const roster = rosterByPlayer[p.playerId];
       return {
         playerId: p.playerId,
         name: p.name,
@@ -325,14 +335,34 @@ function getAllData() {
       .sort(function(a, b) { return b.points - a.points; });
   });
 
+  const configRows = readSheetRows(ss, TABS.CONFIG);
+  const entriesLockedRow = configRows.find((r) => String(r.key) === 'entries_locked');
+
   return {
     apiVersion: 2,
     players,
     rosters,
     standings,
     standingsByCircle: standingsByCircle,
-    entriesLocked: isEntriesLocked(),
+    entriesLocked: entriesLockedRow ? isTruthy(entriesLockedRow.value) : false,
   };
+}
+
+function readSheetRows(ss, sheetName) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) throw new Error('Missing sheet tab: ' + sheetName);
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+
+  const headers = values[0].map(normalizeHeader);
+  return values.slice(1)
+    .filter((row) => row.some((cell) => cell !== '' && cell !== null))
+    .map((row) => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = row[i]; });
+      return obj;
+    });
 }
 
 function formatDateTime(value) {
@@ -527,12 +557,19 @@ function scoreKnockout(team, result) {
   return total;
 }
 
-function scoreTeam(teamId) {
+function buildResultsByTeam() {
+  var resultsByTeam = {};
+  getSheetData(TABS.RESULTS).forEach(function(r) {
+    resultsByTeam[String(r.team_id)] = r;
+  });
+  return resultsByTeam;
+}
+
+function scoreTeamWithResults(teamId, resultsByTeam) {
   var team = TEAMS[teamId];
   if (!team) return 0;
 
-  var results = getSheetData(TABS.RESULTS);
-  var result = results.find(function(r) { return String(r.team_id) === teamId; });
+  var result = resultsByTeam[teamId];
   if (!result) return 0;
 
   return scoreGroupStage(team, result) + scoreKnockout(team, result);
@@ -548,14 +585,20 @@ function recalculateAllPoints() {
   if (pointsCol === -1) return;
 
   const teamCols = [1, 2, 3, 4, 5, 6].map((n) => headers.indexOf('team_' + n));
+  const resultsByTeam = buildResultsByTeam();
+  const pointValues = [];
 
   for (let i = 1; i < values.length; i++) {
     let total = 0;
     teamCols.forEach((col) => {
       if (col === -1) return;
       const teamId = String(values[i][col] || '').trim();
-      if (teamId) total += scoreTeam(teamId);
+      if (teamId) total += scoreTeamWithResults(teamId, resultsByTeam);
     });
-    sheet.getRange(i + 1, pointsCol + 1).setValue(total);
+    pointValues.push([total]);
+  }
+
+  if (pointValues.length) {
+    sheet.getRange(2, pointsCol + 1, pointValues.length, 1).setValues(pointValues);
   }
 }

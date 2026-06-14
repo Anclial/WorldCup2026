@@ -11,6 +11,7 @@ import {
   togglePick,
   validateRoster,
 } from './selection.js';
+import { clearCachedData, getCachedData, isCacheFresh, setCachedData } from './cache.js';
 import { clearDraft, clearSession, getDraft, getSession, saveDraft, setSession } from './state.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -34,10 +35,31 @@ init();
 
 async function init() {
   bindEvents();
-  showLoading(true);
 
+  const cached = getCachedData();
+  if (cached) {
+    applyAppDataFromResponse(cached);
+  }
+
+  const session = getSession();
+  if (session) {
+    enterApp({
+      ...session,
+      circle: session.circle || getPlayerCircle(session.playerId),
+      rosterLocked: isRosterLocked(session.playerId),
+    });
+    refreshDataInBackground();
+    return;
+  }
+
+  showLogin();
+  refreshDataInBackground();
+}
+
+async function refreshDataInBackground() {
+  showLoading(true);
   try {
-    await loadData();
+    await loadData({ force: true });
     if (appData.apiVersion !== 2) {
       showError(
         'Google Apps Script needs redeploying. Open apps-script/Code.gs, paste it into Apps Script, save, then Deploy → Manage deployments → Edit → New version → Deploy. Look for "apiVersion":2 in your Web App URL.'
@@ -47,22 +69,24 @@ async function init() {
     const session = getSession();
     if (session) {
       const stillValid = appData.players.some((p) => p.playerId === session.playerId);
-      if (stillValid) {
-        enterApp({
-          ...session,
-          circle: session.circle || getPlayerCircle(session.playerId),
-          rosterLocked: isRosterLocked(session.playerId),
-        });
-      } else {
+      if (!stillValid) {
         clearSession();
         showLogin();
+        return;
       }
-    } else {
-      showLogin();
+      enterApp({
+        ...session,
+        circle: session.circle || getPlayerCircle(session.playerId),
+        rosterLocked: isRosterLocked(session.playerId),
+      });
     }
   } catch (err) {
-    showError(err.message, { retry: true });
-    showLogin();
+    if (!getCachedData()) {
+      showError(err.message, { retry: true });
+      if (!getSession()) showLogin();
+    } else {
+      showToast('Using saved data — live refresh failed. Tap Try again if scores look stale.');
+    }
   } finally {
     showLoading(false);
   }
@@ -84,8 +108,18 @@ function applyAppDataFromResponse(data) {
   });
 }
 
-async function loadData() {
-  applyAppDataFromResponse(await fetchData());
+async function loadData({ force = false } = {}) {
+  if (!force && isCacheFresh()) {
+    const cached = getCachedData();
+    if (cached) {
+      applyAppDataFromResponse(cached);
+      return;
+    }
+  }
+
+  const data = await fetchData();
+  setCachedData(data);
+  applyAppDataFromResponse(data);
 }
 
 function mergePlayerIntoAppData(player) {
@@ -218,12 +252,6 @@ async function onLogin(e) {
     const result = await join(name, pin, circle);
     mergePlayerIntoAppData(result.player);
 
-    try {
-      await loadData();
-    } catch {
-      // Keep optimistic player data if refresh fails right after join.
-    }
-
     if (result.isNew) {
       setSession(result.player, result.pin, { rosterLocked: false, isNewPlayer: true });
       enterApp({ ...result.player, pin: result.pin, rosterLocked: false, isNewPlayer: true });
@@ -344,6 +372,7 @@ function renderUserBar(player) {
   `;
   $('#sign-out').addEventListener('click', () => {
     clearSession();
+    clearCachedData();
     location.reload();
   });
 }
@@ -369,7 +398,7 @@ async function switchTab(tab) {
 
   if (tab === 'leaderboard' || tab === 'everyone') {
     try {
-      await refreshData();
+      await refreshData({ force: !isCacheFresh() });
     } catch (err) {
       showToast('Could not refresh data: ' + err.message);
     }
@@ -409,8 +438,8 @@ function renderOdds() {
   `;
 }
 
-async function refreshData() {
-  await loadData();
+async function refreshData({ force = false } = {}) {
+  await loadData({ force });
   const session = getSession();
   if (session && isRosterLocked(session.playerId)) {
     draftPicks = [...(appData.rosters[session.playerId] || draftPicks)];
@@ -584,9 +613,10 @@ async function onSubmitRoster() {
   try {
     const result = await submitRoster(session.playerId, session.pin, draftPicks);
     if (result.data) {
+      setCachedData(result.data);
       applyAppDataFromResponse(result.data);
     } else {
-      await loadData();
+      await loadData({ force: true });
     }
     appData.rosterLocked[session.playerId] = true;
     clearDraft(session.playerId);
@@ -963,7 +993,7 @@ function showError(msg, { retry = false } = {}) {
     btn.textContent = 'Try again';
     btn.addEventListener('click', () => {
       hideError();
-      init();
+      refreshDataInBackground();
     });
     el.append(' ');
     el.append(btn);

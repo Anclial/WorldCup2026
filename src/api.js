@@ -1,10 +1,17 @@
 import { APPS_SCRIPT_URL, isAppsScriptConfigured } from './config.js';
 
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 2000;
+const MAX_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 800;
+const REQUEST_TIMEOUT_MS = 25_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
 async function request(method, body, urlOverride, attempt = 1) {
@@ -32,11 +39,17 @@ async function request(method, body, urlOverride, attempt = 1) {
 
   let res;
   try {
-    res = await fetch(url, options);
-  } catch {
+    res = await fetchWithTimeout(url, options);
+  } catch (err) {
+    const timedOut = err?.name === 'AbortError';
     if (attempt < MAX_ATTEMPTS) {
       await sleep(RETRY_DELAY_MS * attempt);
       return request(method, body, urlOverride, attempt + 1);
+    }
+    if (timedOut) {
+      throw new Error(
+        'Google Apps Script took too long to respond. Try again in a moment, or open this page in Chrome instead of an in-app browser.'
+      );
     }
     throw new Error(
       `Could not reach Google Apps Script after ${MAX_ATTEMPTS} tries. Open your /exec URL in a new tab — you should see JSON starting with {"apiVersion":2. If that works, hard-refresh this page (Cmd+Shift+R).`
