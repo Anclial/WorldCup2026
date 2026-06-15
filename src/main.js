@@ -1,4 +1,4 @@
-import { fetchData, join, submitRoster } from './api.js';
+import { fetchAppData, join, submitRoster, syncScoresInBackground } from './api.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
 import { WIN_ODDS_RANK } from './data/odds.js';
 import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS } from './data/scoring.js';
@@ -12,7 +12,11 @@ import {
   validateRoster,
 } from './selection.js';
 import { clearCachedData, getCachedData, isCacheFresh, setCachedData } from './cache.js';
-import { findPlayerByLoginName, normalizeLoginName } from './player-match.js';
+import {
+  findExactPlayerByLoginName,
+  findSimilarPlayers,
+  normalizeLoginName,
+} from './player-match.js';
 import { clearDraft, clearSession, getDraft, getSession, saveDraft, setSession } from './state.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -41,7 +45,7 @@ init();
 async function init() {
   bindEvents();
 
-  const cached = getCachedData();
+  const cached = getCachedData({ allowStale: true });
   if (cached) {
     applyAppDataFromResponse(cached);
   }
@@ -60,12 +64,46 @@ async function init() {
   await refreshDataInBackground();
 }
 
+function applyFreshAppData(data) {
+  setCachedData(data);
+  applyAppDataFromResponse(data);
+  refreshVisibleTab();
+}
+
+function refreshVisibleTab() {
+  const session = getSession();
+  if (!session) return;
+
+  if (activeTab === 'board') {
+    updateBoardHeaderBar();
+    if (boardMounted) updateBoard();
+    else renderBoard();
+  }
+  if (activeTab === 'leaderboard') renderLeaderboard();
+  if (activeTab === 'everyone') renderEveryone();
+}
+
+function runBackgroundScoreSync() {
+  syncScoresInBackground()
+    .then((fresh) => {
+      if (!fresh) return;
+      applyFreshAppData(fresh);
+    })
+    .catch(() => {
+      // Scores stay at last synced values — app remains usable.
+    });
+}
+
 async function refreshDataInBackground() {
-  const hadCache = !!getCachedData();
-  showLoading(true, 'Loading contest data…');
+  const hadDisplayableCache = !!getCachedData({ allowStale: true });
+  if (!hadDisplayableCache) {
+    showLoading(true, 'Loading contest data…');
+  }
 
   try {
-    await loadData({ force: true });
+    const data = await fetchAppData();
+    setCachedData(data);
+    applyAppDataFromResponse(data);
 
     const session = getSession();
     if (session) {
@@ -75,14 +113,10 @@ async function refreshDataInBackground() {
         showWelcome();
         return;
       }
-      enterApp({
-        ...session,
-        circle: session.circle || getPlayerCircle(session.playerId),
-        rosterLocked: isRosterLocked(session.playerId),
-      });
+      refreshVisibleTab();
     }
   } catch (err) {
-    if (!hadCache) {
+    if (!hadDisplayableCache) {
       showError(err.message, { retry: true });
       if (!getSession()) showWelcome();
     } else {
@@ -91,6 +125,8 @@ async function refreshDataInBackground() {
   } finally {
     showLoading(false);
   }
+
+  runBackgroundScoreSync();
 }
 
 function applyAppDataFromResponse(data) {
@@ -120,7 +156,7 @@ async function loadData({ force = false } = {}) {
     }
   }
 
-  const data = await fetchData();
+  const data = await fetchAppData();
   setCachedData(data);
   applyAppDataFromResponse(data);
 }
@@ -211,6 +247,105 @@ function loginExistingPlayer(player) {
   enterApp({ ...player, rosterLocked, isNewPlayer: false });
 }
 
+function toPlayerRecord(player) {
+  return {
+    playerId: player.playerId,
+    name: player.name,
+    circle: player.circle || '',
+  };
+}
+
+function promptSimilarNameChoice(typedName, candidates) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'name-check-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'name-check-title');
+
+    const primary = candidates[0];
+    const extra =
+      candidates.length > 1
+        ? `<p class="name-check-alt">Or: ${candidates
+            .slice(1)
+            .map((p) => `<button type="button" class="name-check-alt-btn" data-player-id="${escapeHtml(p.playerId)}">${escapeHtml(p.name)}</button>`)
+            .join(' ')}</p>`
+        : '';
+
+    const title =
+      candidates.length === 1
+        ? `Did you mean ${primary.name}?`
+        : 'Did you mean one of these players?';
+
+  const body =
+      candidates.length === 1
+        ? `<p>You entered <strong>${escapeHtml(typedName)}</strong>. There is already a player named <strong>${escapeHtml(primary.name)}</strong>. Is that you?</p>`
+        : `<p>You entered <strong>${escapeHtml(typedName)}</strong>. ${escapeHtml(title)}</p>
+           <ul class="name-check-list">${candidates
+             .map((p) => `<li><button type="button" class="btn btn-ghost name-check-pick" data-player-id="${escapeHtml(p.playerId)}">${escapeHtml(p.name)}</button></li>`)
+             .join('')}</ul>`;
+
+    overlay.innerHTML = `
+      <div class="name-check-card card">
+        <h3 id="name-check-title" class="name-check-title">${escapeHtml(title)}</h3>
+        ${body}
+        ${extra}
+        <div class="name-check-actions">
+          ${
+            candidates.length === 1
+              ? `<button type="button" class="btn btn-primary" data-action="yes">Yes, that's me</button>`
+              : ''
+          }
+          <button type="button" class="btn btn-ghost" data-action="no">No, join as ${escapeHtml(typedName)}</button>
+        </div>
+      </div>
+    `;
+
+    const cleanup = (value) => {
+      overlay.remove();
+      document.body.classList.remove('name-check-open');
+      resolve(value);
+    };
+
+    const pickById = (playerId) => {
+      const match = candidates.find((p) => p.playerId === playerId);
+      cleanup(match ? toPlayerRecord(match) : false);
+    };
+
+    overlay.querySelector('[data-action="yes"]')?.addEventListener('click', () => {
+      cleanup(toPlayerRecord(primary));
+    });
+    overlay.querySelector('[data-action="no"]')?.addEventListener('click', () => cleanup(false));
+    overlay.querySelectorAll('[data-player-id]').forEach((btn) => {
+      btn.addEventListener('click', () => pickById(btn.dataset.playerId));
+    });
+
+    document.body.classList.add('name-check-open');
+    document.body.appendChild(overlay);
+    overlay.querySelector('[data-action="yes"], .name-check-pick, [data-action="no"]')?.focus();
+  });
+}
+
+async function completeJoinAsNew(rawName, circle) {
+  const result = await join(rawName, circle, { forceNew: true });
+  if (result.needsCircle) {
+    showWelcome();
+    showError('Pick Family, Friends, or Work to continue.');
+    return;
+  }
+
+  mergePlayerIntoAppData(result.player);
+  setSession(result.player, {
+    rosterLocked: !!result.rosterLocked,
+    isNewPlayer: !!result.isNew,
+  });
+  enterApp({
+    ...result.player,
+    rosterLocked: !!result.rosterLocked,
+    isNewPlayer: !!result.isNew,
+  });
+}
+
 function renderCirclePicker() {
   const picker = $('#circle-picker');
   if (!picker) return;
@@ -272,13 +407,31 @@ async function onLogin(e) {
   btn.disabled = true;
   showLoading(true, 'Signing you in…');
 
-  const findExistingPlayer = () =>
-    findPlayerByLoginName(rawName, appData.players) || findPlayerByLoginName(name, appData.players);
+  const findExactPlayer = () =>
+    findExactPlayerByLoginName(rawName, appData.players) ||
+    findExactPlayerByLoginName(name, appData.players);
 
   try {
-    const existing = findExistingPlayer();
-    if (existing) {
-      loginExistingPlayer(existing);
+    const exact = findExactPlayer();
+    if (exact) {
+      loginExistingPlayer(exact);
+      return;
+    }
+
+    const similar = findSimilarPlayers(rawName, appData.players);
+    if (similar.length) {
+      showLoading(false);
+      const choice = await promptSimilarNameChoice(rawName, similar);
+      if (choice && typeof choice === 'object') {
+        showLoading(true, 'Signing you in…');
+        loginExistingPlayer(choice);
+        return;
+      }
+      if (choice === false) {
+        showLoading(true, 'Creating your entry…');
+        await completeJoinAsNew(rawName, selectedCircle);
+        return;
+      }
       return;
     }
 
@@ -300,11 +453,11 @@ async function onLogin(e) {
       isNewPlayer: !!result.isNew,
     });
   } catch (err) {
-    let existing = findExistingPlayer();
+    let existing = findExactPlayer();
     if (!existing) {
       try {
         await loadData({ force: true });
-        existing = findExistingPlayer();
+        existing = findExactPlayer();
       } catch {
         // Fall through to error handling below.
       }
@@ -315,7 +468,7 @@ async function onLogin(e) {
     }
 
     try {
-      const result = await join(rawName, selectedCircle);
+      const result = await join(rawName, selectedCircle, { forceNew: true });
       if (result?.player) {
         mergePlayerIntoAppData(result.player);
         setSession(result.player, {
@@ -421,22 +574,15 @@ async function switchTab(tab) {
   $('#rules-section').classList.toggle('hidden', tab !== 'rules');
   $('#odds-section').classList.toggle('hidden', tab !== 'odds');
 
-  if (tab === 'leaderboard' || tab === 'everyone') {
-    showLoading(true, 'Updating standings…');
-    try {
-      await refreshData({ force: !isCacheFresh() });
-    } catch (err) {
-      showToast('Could not refresh data: ' + err.message);
-    } finally {
-      showLoading(false);
-    }
-  }
-
   if (tab === 'board') renderBoard();
   if (tab === 'leaderboard') renderLeaderboard();
   if (tab === 'everyone') renderEveryone();
   if (tab === 'rules') renderRules();
   if (tab === 'odds') renderOdds();
+
+  if (tab === 'leaderboard' || tab === 'everyone') {
+    runBackgroundScoreSync();
+  }
 }
 
 function renderOdds() {

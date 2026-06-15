@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy:rules": "npx firebase-tools deploy --only firestore:rules --project worldcup2026pickem",
-    "migrate:firestore": "node scripts/migrate-to-firestore.mjs"
+    "clear:firestore": "node scripts/clear-firestore.mjs",
+    "migrate:firestore": "node scripts/migrate-to-firestore.mjs",
+    "sync:results": "node scripts/sync-results.mjs",
+    "reset:firestore": "node scripts/clear-firestore.mjs && node scripts/migrate-to-firestore.mjs"
   },
   "devDependencies": {
     "vite": "^6.3.5"

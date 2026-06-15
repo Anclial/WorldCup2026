@@ -31,7 +31,25 @@ async function migrate() {
   console.log('Fetching data from legacy Google Sheets backend...');
   const data = await fetchSheetData();
 
-  console.log(`Migrating ${data.players?.length || 0} players, ${data.rosters?.length || 0} rosters...`);
+  const players = (data.players || []).filter((p) => {
+    const id = String(p.playerId || '').trim();
+    if (!id) {
+      console.warn('Skipping player with empty id:', p);
+      return false;
+    }
+    return true;
+  });
+
+  const rosters = (data.rosters || []).filter((r) => {
+    const id = String(r.playerId || '').trim();
+    if (!id) {
+      console.warn('Skipping roster with empty playerId:', r);
+      return false;
+    }
+    return true;
+  });
+
+  console.log(`Migrating ${players.length} players, ${rosters.length} rosters...`);
 
   let batch = writeBatch(db);
   let ops = 0;
@@ -43,9 +61,14 @@ async function migrate() {
     ops = 0;
   }
 
-  for (const player of data.players || []) {
+  for (const player of players) {
+    const playerId = String(player.playerId).trim();
     const displayName = String(player.name || '').trim();
-    batch.set(doc(db, 'players', player.playerId), {
+    if (!displayName) {
+      console.warn(`Skipping player ${playerId} — empty name`);
+      continue;
+    }
+    batch.set(doc(db, 'players', playerId), {
       name: displayName,
       nameLower: displayName.toLowerCase(),
       circle: player.circle || '',
@@ -56,8 +79,9 @@ async function migrate() {
     if (ops >= 450) await flushBatch();
   }
 
-  for (const roster of data.rosters || []) {
-    batch.set(doc(db, 'rosters', roster.playerId), {
+  for (const roster of rosters) {
+    const playerId = String(roster.playerId).trim();
+    batch.set(doc(db, 'rosters', playerId), {
       teamIds: roster.teamIds || [],
       points: roster.points || 0,
       locked: !!roster.locked,
@@ -78,15 +102,21 @@ async function migrate() {
   await batch.commit();
 
   console.log('Seeding results from live World Cup API...');
-  const { groupsPayload, gamesPayload } = await fetchWorldCupApiData();
-  const computed = computeResultsFromWorldCupApi(groupsPayload, gamesPayload);
   const syncedAt = new Date().toISOString();
+  let computed = null;
+
+  try {
+    const { groupsPayload, gamesPayload } = await fetchWorldCupApiData();
+    computed = computeResultsFromWorldCupApi(groupsPayload, gamesPayload);
+  } catch (err) {
+    console.warn('World Cup API unavailable — seeding zero results.', err.message || err);
+  }
 
   batch = writeBatch(db);
   ops = 0;
   for (const team of TEAMS) {
     batch.set(doc(db, 'results', team.id), {
-      ...(computed[team.id] || {
+      ...(computed?.[team.id] || {
         group_wins: 0,
         group_draws: 0,
         r32: 0,
@@ -107,13 +137,16 @@ async function migrate() {
     doc(db, 'config', 'settings'),
     {
       entries_locked: !!data.entriesLocked,
-      last_results_sync: Date.now(),
-      scores_synced_at: syncedAt,
+      last_results_sync: computed ? Date.now() : 0,
+      scores_synced_at: computed ? syncedAt : '',
     },
     { merge: true }
   );
 
   console.log('Done! Firestore is ready. The app already uses BACKEND = firebase.');
+  if (!computed) {
+    console.log('Live scores will sync automatically the next time someone opens the app.');
+  }
 }
 
 migrate().catch((err) => {

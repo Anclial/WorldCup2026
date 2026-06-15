@@ -1182,6 +1182,83 @@ body {
   text-align: center;
 }
 
+body.name-check-open {
+  overflow: hidden;
+}
+
+.name-check-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(6, 10, 16, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.name-check-card {
+  width: min(100%, 26rem);
+  margin: 0;
+}
+
+.name-check-title {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 400;
+}
+
+.name-check-card p {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.name-check-card strong {
+  color: var(--text);
+}
+
+.name-check-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.name-check-list .btn {
+  width: 100%;
+  text-align: left;
+}
+
+.name-check-alt {
+  font-size: 0.9rem;
+}
+
+.name-check-alt-btn {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.name-check-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.name-check-actions .btn {
+  width: 100%;
+}
+
 .loading-overlay {
   position: fixed;
   inset: 0;

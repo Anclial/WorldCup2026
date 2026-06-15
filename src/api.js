@@ -1,11 +1,19 @@
 import * as firestoreApi from './firestore-api.js';
 
+export function fetchAppData() {
+  return firestoreApi.fetchAppData();
+}
+
+export function syncScoresInBackground() {
+  return firestoreApi.syncScoresInBackground();
+}
+
 export function fetchData() {
   return firestoreApi.fetchData();
 }
 
-export function join(name, circle) {
-  return firestoreApi.join(name, circle);
+export function join(name, circle, options) {
+  return firestoreApi.join(name, circle, options);
 }
 
 export function submitRoster(playerId, teamIds) {

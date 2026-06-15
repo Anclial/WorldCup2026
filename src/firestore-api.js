@@ -12,7 +12,7 @@ import { GROUP_STAGE_POINTS, KNOCKOUT_ROUNDS } from './data/scoring.js';
 import { TEAM_BY_ID } from './data/teams.js';
 import { computeResultsFromWorldCupApi, fetchWorldCupApiData } from './data/worldcup-sync.js';
 import { getDb } from './firebase.js';
-import { findPlayerByLoginName } from './player-match.js';
+import { findExactPlayerByLoginName, findPlayerByLoginName } from './player-match.js';
 import { validateRoster } from './selection.js';
 
 const VALID_CIRCLES = ['family', 'friends', 'work'];
@@ -113,7 +113,10 @@ async function syncResultsIfStale() {
   const config = configSnap.exists() ? configSnap.data() : {};
   const lastSync = Number(config.last_results_sync || 0);
   if (Date.now() - lastSync < RESULTS_SYNC_INTERVAL_MS) {
-    return config.scores_synced_at || '';
+    return {
+      scoresSyncedAt: config.scores_synced_at || '',
+      didSync: false,
+    };
   }
 
   const { groupsPayload, gamesPayload } = await fetchWorldCupApiData();
@@ -150,24 +153,15 @@ async function syncResultsIfStale() {
     { merge: true }
   );
 
-  return syncedAt;
+  return { scoresSyncedAt: syncedAt, didSync: true };
 }
 
-export async function fetchData() {
-  let scoresSyncedAt = '';
-  try {
-    scoresSyncedAt = (await syncResultsIfStale()) || '';
-  } catch {
-    const configSnap = await getDoc(doc(getDb(), 'config', 'settings'));
-    scoresSyncedAt = configSnap.exists() ? configSnap.data().scores_synced_at || '' : '';
-  }
-
+async function readAppDataFromFirestore() {
   const db = getDb();
-  const [playersSnap, rostersSnap, configSnap, resultsSnap] = await Promise.all([
+  const [playersSnap, rostersSnap, configSnap] = await Promise.all([
     getDocs(collection(db, 'players')),
     getDocs(collection(db, 'rosters')),
     getDoc(doc(db, 'config', 'settings')),
-    getDocs(collection(db, 'results')),
   ]);
 
   const players = playersSnap.docs.map((snap) => {
@@ -179,20 +173,12 @@ export async function fetchData() {
     };
   });
 
-  const resultsByTeam = {};
-  resultsSnap.docs.forEach((snap) => {
-    resultsByTeam[snap.id] = snap.data();
-  });
-
   const rosters = rostersSnap.docs.map((snap) => {
     const r = snap.data();
-    const teamIds = (r.teamIds || []).map(String).filter(Boolean);
-    const points = teamIds.reduce((sum, id) => sum + scoreTeam(id, resultsByTeam), 0);
-
     return {
       playerId: snap.id,
-      teamIds,
-      points,
+      teamIds: (r.teamIds || []).map(String).filter(Boolean),
+      points: Number(r.points) || 0,
       updatedAt: r.updatedAt || '',
       locked: !!r.locked,
     };
@@ -208,12 +194,33 @@ export async function fetchData() {
     standings,
     standingsByCircle: buildStandingsByCircle(standings),
     entriesLocked: isTruthy(config.entries_locked),
-    scoresSyncedAt,
+    scoresSyncedAt: config.scores_synced_at || '',
     autoScores: true,
   };
 }
 
-async function findPlayerByName(name) {
+/** Fast read — Firestore only, no live score sync. */
+export async function fetchAppData() {
+  return readAppDataFromFirestore();
+}
+
+/** Sync live scores if stale, then return fresh app data (or null if skipped). */
+export async function syncScoresInBackground() {
+  const syncResult = await syncResultsIfStale();
+  if (!syncResult.didSync) return null;
+  return readAppDataFromFirestore();
+}
+
+export async function fetchData() {
+  try {
+    await syncResultsIfStale();
+  } catch {
+    // Fall through — still return the latest Firestore snapshot.
+  }
+  return readAppDataFromFirestore();
+}
+
+async function findPlayerByName(name, { exactOnly = false } = {}) {
   const db = getDb();
   const trimmed = String(name || '').trim();
   const nameLower = trimmed.toLowerCase();
@@ -232,7 +239,9 @@ async function findPlayerByName(name) {
     name: String(snap.data().name || ''),
     circle: snap.data().circle,
   }));
-  const match = findPlayerByLoginName(trimmed, players);
+
+  const matchFn = exactOnly ? findExactPlayerByLoginName : findPlayerByLoginName;
+  const match = matchFn(trimmed, players);
   if (!match) return null;
 
   const docSnap = allSnap.docs.find((snap) => snap.id === match.playerId);
@@ -259,23 +268,24 @@ async function createPlayerId(name) {
   return `${base}-${Date.now()}`;
 }
 
-export async function join(name, circle) {
+export async function join(name, circle, { forceNew = false } = {}) {
   const trimmed = String(name || '').trim();
   if (!trimmed) throw new Error('Please enter your first name.');
   if (trimmed.length < 2) throw new Error('First name must be at least 2 characters.');
 
-  const existing = await findPlayerByName(trimmed);
-
-  if (existing) {
-    return {
-      player: {
-        playerId: existing.id,
-        name: String(existing.name),
-        circle: normalizeCircle(existing.circle),
-      },
-      isNew: false,
-      rosterLocked: await isRosterLocked(existing.id),
-    };
+  if (!forceNew) {
+    const existing = await findPlayerByName(trimmed, { exactOnly: true });
+    if (existing) {
+      return {
+        player: {
+          playerId: existing.id,
+          name: String(existing.name),
+          circle: normalizeCircle(existing.circle),
+        },
+        isNew: false,
+        rosterLocked: await isRosterLocked(existing.id),
+      };
+    }
   }
 
   const playerCircle = normalizeCircle(circle);
@@ -339,6 +349,6 @@ export async function submitRoster(playerId, teamIds) {
     updatedAt: now,
   });
 
-  const data = await fetchData();
+  const data = await fetchAppData();
   return { success: true, data };
 }

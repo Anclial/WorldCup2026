@@ -180,10 +180,23 @@ export function computeResultsFromWorldCupApi(groupsPayload, gamesPayload) {
   return results;
 }
 
+const API_FETCH_TIMEOUT_MS = 60_000;
+
+async function fetchWithTimeout(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchWorldCupApiData(baseUrl = WORLDCUP_API_BASE) {
   const [groupsRes, gamesRes] = await Promise.all([
-    fetch(`${baseUrl}/get/groups`),
-    fetch(`${baseUrl}/get/games`),
+    fetchWithTimeout(`${baseUrl}/get/groups`),
+    fetchWithTimeout(`${baseUrl}/get/games`),
   ]);
 
   if (!groupsRes.ok) {

@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, persistentLocalCache } from 'firebase/firestore';
 import { FIREBASE_CONFIG, isFirebaseConfigured } from './config.js';
 
 let app = null;
@@ -11,7 +11,13 @@ export function getDb() {
   }
   if (!db) {
     app = initializeApp(FIREBASE_CONFIG);
-    db = getFirestore(app);
+    try {
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache(),
+      });
+    } catch {
+      db = getFirestore(app);
+    }
   }
   return db;
 }
