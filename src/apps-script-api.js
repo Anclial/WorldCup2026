@@ -68,7 +68,15 @@ async function request(method, body, urlOverride, attempt = 1) {
     );
   }
 
-  if (data.error) throw new Error(data.error);
+  if (data.error) {
+    const message = String(data.error);
+    if (message.includes('UrlFetchApp.fetch') || message.includes('external_request')) {
+      throw new Error(
+        'Live score sync is not authorized yet in Apps Script. Paste the latest Code.gs, redeploy, then run syncResultsFromApi once to grant permissions.'
+      );
+    }
+    throw new Error(message);
+  }
   return data;
 }
 
@@ -86,19 +94,47 @@ function joinViaGet(name, circle) {
   return request('GET', null, `${APPS_SCRIPT_URL}?${params}`);
 }
 
+function submitRosterViaGet(playerId, teamIds) {
+  const params = new URLSearchParams({
+    action: 'submitRoster',
+    playerId,
+    teamIds: teamIds.join(','),
+    t: String(Date.now()),
+  });
+  return request('GET', null, `${APPS_SCRIPT_URL}?${params}`);
+}
+
+function shouldFallbackToGet(err) {
+  const message = String(err?.message || err || '');
+  return (
+    message.includes('Unknown action') ||
+    message.includes('Could not reach') ||
+    message.includes('unexpected response') ||
+    message.includes('took too long')
+  );
+}
+
 export async function join(name, circle) {
-  const payload = { action: 'join', name, circle: circle || '' };
   try {
-    return await request('POST', payload);
+    return await joinViaGet(name, circle);
   } catch (err) {
-    const message = String(err.message);
-    if (message.includes('Unknown action') || message.includes('Could not reach')) {
-      return joinViaGet(name, circle);
+    if (!shouldFallbackToGet(err)) throw err;
+    try {
+      return await request('POST', { action: 'join', name, circle: circle || '' });
+    } catch (postErr) {
+      if (shouldFallbackToGet(postErr)) {
+        return joinViaGet(name, circle);
+      }
+      throw postErr;
     }
-    throw err;
   }
 }
 
-export function submitRoster(playerId, teamIds) {
-  return request('POST', { action: 'submitRoster', playerId, teamIds });
+export async function submitRoster(playerId, teamIds) {
+  try {
+    return await request('POST', { action: 'submitRoster', playerId, teamIds });
+  } catch (err) {
+    if (!shouldFallbackToGet(err)) throw err;
+    return submitRosterViaGet(playerId, teamIds);
+  }
 }

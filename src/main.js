@@ -287,7 +287,7 @@ async function onLogin(e) {
       return;
     }
 
-    const result = await join(name, selectedCircle);
+    const result = await join(rawName, selectedCircle);
     if (result.needsCircle) {
       showWelcome();
       showError('Pick Family, Friends, or Work to continue.');
@@ -305,20 +305,40 @@ async function onLogin(e) {
       isNewPlayer: !!result.isNew,
     });
   } catch (err) {
-    if (isLegacyPinLoginError(err.message)) {
-      let existing = findExistingPlayer();
-      if (!existing) {
-        try {
-          await loadData({ force: true });
-          existing = findExistingPlayer();
-        } catch {
-          // Keep showing the legacy PIN error below if refresh fails.
-        }
+    let existing = findExistingPlayer();
+    if (!existing) {
+      try {
+        await loadData({ force: true });
+        existing = findExistingPlayer();
+      } catch {
+        // Fall through to error handling below.
       }
-      if (existing) {
-        loginExistingPlayer(existing);
+    }
+    if (existing) {
+      loginExistingPlayer(existing);
+      return;
+    }
+
+    try {
+      const result = await join(rawName, selectedCircle);
+      if (result?.player) {
+        mergePlayerIntoAppData(result.player);
+        setSession(result.player, {
+          rosterLocked: !!result.rosterLocked,
+          isNewPlayer: !!result.isNew,
+        });
+        enterApp({
+          ...result.player,
+          rosterLocked: !!result.rosterLocked,
+          isNewPlayer: !!result.isNew,
+        });
         return;
       }
+    } catch {
+      // Fall through to error message below.
+    }
+
+    if (isLegacyPinLoginError(err.message)) {
       showError('Found your name on the roster, but the server still expects PINs. Redeploy apps-script/Code.gs in Google Apps Script.');
       return;
     }

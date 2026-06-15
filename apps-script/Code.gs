@@ -118,6 +118,32 @@ function doGet(e) {
       }
     }
 
+    if (params.action === 'submitRoster' || params.action === 'submitPicks') {
+      const player = authenticatePlayer(params.playerId);
+      if (!player) return jsonResponse({ error: 'Player not found' });
+      if (isEntriesLocked()) {
+        return jsonResponse({ error: 'Entries are closed — rosters can no longer be submitted.' });
+      }
+      if (isRosterLocked(params.playerId)) {
+        return jsonResponse({ error: 'Your roster is already locked.' });
+      }
+
+      const teamIds = String(params.teamIds || '')
+        .split(',')
+        .map(function(id) { return String(id).trim(); })
+        .filter(Boolean);
+
+      const validation = validateRoster(teamIds);
+      if (!validation.valid) return jsonResponse({ error: validation.errors.join(' ') });
+
+      saveRoster(params.playerId, teamIds, true);
+      recalculateAllPoints();
+      clearDataCache();
+      const data = getAllData();
+      setCachedAllData(data);
+      return jsonResponse({ success: true, data: data });
+    }
+
     try {
       var syncResult = syncResultsIfStale();
       if (syncResult && syncResult.ok) clearDataCache();
