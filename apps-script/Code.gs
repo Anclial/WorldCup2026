@@ -109,13 +109,21 @@ function doGet(e) {
     }
 
     if (params.action === 'syncScores') {
-      const result = syncResultsFromApi(true);
-      clearDataCache();
-      return jsonResponse(result);
+      try {
+        const result = syncResultsFromApi(true);
+        clearDataCache();
+        return jsonResponse(result);
+      } catch (syncErr) {
+        return jsonResponse({ error: String(syncErr) });
+      }
     }
 
-    var syncResult = syncResultsIfStale();
-    if (syncResult && syncResult.ok) clearDataCache();
+    try {
+      var syncResult = syncResultsIfStale();
+      if (syncResult && syncResult.ok) clearDataCache();
+    } catch (syncErr) {
+      // Score sync needs UrlFetch authorization — app still loads without it.
+    }
 
     const cached = getCachedAllData();
     if (cached) return jsonResponse(cached);
