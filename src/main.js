@@ -12,6 +12,7 @@ import {
   validateRoster,
 } from './selection.js';
 import { clearCachedData, getCachedData, isCacheFresh, setCachedData } from './cache.js';
+import { findPlayerByLoginName, isLegacyPinLoginError, normalizeLoginName } from './player-match.js';
 import { clearDraft, clearSession, getDraft, getSession, saveDraft, setSession } from './state.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -53,7 +54,7 @@ async function init() {
       rosterLocked: isRosterLocked(session.playerId),
     });
   } else {
-    showLogin();
+    showWelcome();
   }
 
   await refreshDataInBackground();
@@ -76,7 +77,7 @@ async function refreshDataInBackground() {
       const stillValid = appData.players.some((p) => p.playerId === session.playerId);
       if (!stillValid) {
         clearSession();
-        showLogin();
+        showWelcome();
         return;
       }
       enterApp({
@@ -88,7 +89,7 @@ async function refreshDataInBackground() {
   } catch (err) {
     if (!hadCache) {
       showError(err.message, { retry: true });
-      if (!getSession()) showLogin();
+      if (!getSession()) showWelcome();
     } else {
       showToast('Using saved data — live refresh failed. Tap Try again if scores look stale.');
     }
@@ -201,10 +202,18 @@ function bindEvents() {
   renderCirclePicker();
   $('#login-form').addEventListener('submit', onLogin);
   $('#tabs').addEventListener('click', onTabClick);
+  $('#back-to-welcome').addEventListener('click', showWelcome);
 }
 
 function normalizeFirstName(value) {
-  return String(value || '').trim().split(/\s+/)[0];
+  return normalizeLoginName(value);
+}
+
+function loginExistingPlayer(player) {
+  mergePlayerIntoAppData(player);
+  const rosterLocked = isRosterLocked(player.playerId);
+  setSession(player, { rosterLocked, isNewPlayer: false });
+  enterApp({ ...player, rosterLocked, isNewPlayer: false });
 }
 
 function renderCirclePicker() {
@@ -220,20 +229,31 @@ function renderCirclePicker() {
 
   picker.querySelectorAll('.circle-pick-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      selectedCircle = btn.dataset.circle;
-      picker.querySelectorAll('.circle-pick-btn').forEach((el) => {
-        el.classList.toggle('active', el.dataset.circle === selectedCircle);
-      });
+      showJoinForm(btn.dataset.circle);
     });
   });
 }
 
-function showLogin() {
-  $('#login-section').classList.remove('hidden');
-  $('#circle-step').classList.add('hidden');
+function showWelcome() {
+  $('#welcome-section').classList.remove('hidden');
+  $('#login-section').classList.add('hidden');
   $('#tabs').classList.add('hidden');
   $('#user-bar').classList.add('hidden');
   selectedCircle = '';
+  hideError();
+}
+
+function showJoinForm(circleId) {
+  const circle = CIRCLE_BY_ID[circleId];
+  if (!circle) return;
+
+  selectedCircle = circleId;
+  const badge = $('#selected-circle-badge');
+  badge.textContent = circle.label;
+  badge.classList.remove('hidden');
+  $('#welcome-section').classList.add('hidden');
+  $('#login-section').classList.remove('hidden');
+  $('#name-input').focus();
   hideError();
 }
 
@@ -241,15 +261,15 @@ async function onLogin(e) {
   e.preventDefault();
   hideError();
 
-  const name = normalizeFirstName($('#name-input').value);
+  const rawName = $('#name-input').value.trim();
+  const name = normalizeFirstName(rawName);
   if (!name || name.length < 2) {
     showError('Enter your first name (at least 2 characters).');
     return;
   }
 
-  const circleStepVisible = !$('#circle-step').classList.contains('hidden');
-  if (circleStepVisible && !selectedCircle) {
-    showError('Pick Family, Friends, or Work to continue.');
+  if (!selectedCircle) {
+    showError('Please go back and choose how you know Jason.');
     return;
   }
 
@@ -257,12 +277,20 @@ async function onLogin(e) {
   btn.disabled = true;
   showLoading(true, 'Signing you in…');
 
+  const findExistingPlayer = () =>
+    findPlayerByLoginName(rawName, appData.players) || findPlayerByLoginName(name, appData.players);
+
   try {
+    const existing = findExistingPlayer();
+    if (existing) {
+      loginExistingPlayer(existing);
+      return;
+    }
+
     const result = await join(name, selectedCircle);
     if (result.needsCircle) {
-      $('#circle-step').classList.remove('hidden');
-      selectedCircle = '';
-      renderCirclePicker();
+      showWelcome();
+      showError('Pick Family, Friends, or Work to continue.');
       return;
     }
 
@@ -277,6 +305,23 @@ async function onLogin(e) {
       isNewPlayer: !!result.isNew,
     });
   } catch (err) {
+    if (isLegacyPinLoginError(err.message)) {
+      let existing = findExistingPlayer();
+      if (!existing) {
+        try {
+          await loadData({ force: true });
+          existing = findExistingPlayer();
+        } catch {
+          // Keep showing the legacy PIN error below if refresh fails.
+        }
+      }
+      if (existing) {
+        loginExistingPlayer(existing);
+        return;
+      }
+      showError('Found your name on the roster, but the server still expects PINs. Redeploy apps-script/Code.gs in Google Apps Script.');
+      return;
+    }
     showError(err.message);
   } finally {
     showLoading(false);
@@ -308,6 +353,7 @@ function escapeHtml(str) {
 }
 
 function enterApp(player) {
+  $('#welcome-section').classList.add('hidden');
   $('#login-section').classList.add('hidden');
   $('#tabs').classList.remove('hidden');
   renderUserBar(player);

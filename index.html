@@ -51,12 +51,17 @@
         <div id="toast" class="toast hidden" role="status"></div>
         <div id="error" class="error-banner hidden"></div>
 
-        <section id="login-section" class="card login-card">
+        <section id="welcome-section" class="card welcome-card">
+          <h2 class="welcome-title">Welcome to the World Cup 2026 Contest</h2>
+          <p class="welcome-subtitle">How do you know Jason?</p>
+          <div id="circle-picker" class="circle-picker"></div>
+        </section>
+
+        <section id="login-section" class="card login-card hidden">
+          <button type="button" id="back-to-welcome" class="btn btn-ghost btn-sm back-btn">← Change group</button>
+          <p id="selected-circle-badge" class="selected-circle-badge hidden"></p>
           <h2>Join the Contest</h2>
-          <p class="login-desc">
-            Enter your <strong>first name</strong> only. If you're on the roster, you'll see your picks.
-            New names can join and make fresh picks.
-          </p>
+          <p class="login-desc">Enter your first name only.</p>
           <form id="login-form" class="login-form">
             <label>
               First name
@@ -69,10 +74,6 @@
                 maxlength="24"
               />
             </label>
-            <div id="circle-step" class="circle-step hidden">
-              <p class="circle-step-label">You're new — how do you know Jason?</p>
-              <div id="circle-picker" class="circle-picker"></div>
-            </div>
             <button type="submit" class="btn btn-primary">Continue</button>
           </form>
         </section>

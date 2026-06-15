@@ -467,10 +467,21 @@ function joinPlayer(name, circle) {
 }
 
 function findPlayerByName(name) {
-  const normalized = normalizeFirstName(name).toLowerCase();
-  return getSheetData(TABS.PLAYERS).find(
-    (r) => String(r.name).trim().toLowerCase() === normalized
-  );
+  const trimmed = normalizeFirstName(name);
+  const normalized = trimmed.toLowerCase();
+  const key = normalized.replace(/[\s_-]+/g, '');
+  const first = normalized.split(/[\s_]+/)[0];
+
+  return getSheetData(TABS.PLAYERS).find(function(r) {
+    var rowName = String(r.name).trim().toLowerCase();
+    var playerId = String(r.player_id).toLowerCase();
+    if (rowName === normalized) return true;
+    if (rowName.replace(/[\s_-]+/g, '') === key) return true;
+    if (playerId === key || playerId.replace(/-/g, '_') === key.replace(/-/g, '_')) return true;
+    if (rowName.split(/[\s_]+/)[0] === first) return true;
+    if (playerId.split(/[-_]+/)[0] === first) return true;
+    return false;
+  });
 }
 
 function slugify(name) {
