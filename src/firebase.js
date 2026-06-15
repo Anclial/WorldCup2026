@@ -1,13 +1,13 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { FIREBASE_CONFIG, useFirebaseBackend } from './config.js';
+import { FIREBASE_CONFIG, isFirebaseConfigured } from './config.js';
 
 let app = null;
 let db = null;
 
 export function getDb() {
-  if (!useFirebaseBackend()) {
-    throw new Error('Firebase backend is not enabled. Set BACKEND to "firebase" in src/config.js.');
+  if (!isFirebaseConfigured()) {
+    throw new Error('Firebase is not configured. Check FIREBASE_CONFIG in src/config.js.');
   }
   if (!db) {
     app = initializeApp(FIREBASE_CONFIG);

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "deploy:rules": "firebase deploy --only firestore:rules --project worldcup2026pickem",
     "migrate:firestore": "node scripts/migrate-to-firestore.mjs"
   },
   "devDependencies": {

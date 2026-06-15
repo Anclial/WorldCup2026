@@ -6,11 +6,13 @@ import {
   query,
   setDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { GROUP_STAGE_POINTS, KNOCKOUT_ROUNDS } from './data/scoring.js';
 import { TEAM_BY_ID } from './data/teams.js';
 import { computeResultsFromWorldCupApi, fetchWorldCupApiData } from './data/worldcup-sync.js';
 import { getDb } from './firebase.js';
+import { findPlayerByLoginName } from './player-match.js';
 import { validateRoster } from './selection.js';
 
 const VALID_CIRCLES = ['family', 'friends', 'work'];
@@ -32,10 +34,6 @@ function slugify(name) {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '') || 'player'
   );
-}
-
-function normalizeFirstName(name) {
-  return String(name || '').trim().split(/\s+/)[0];
 }
 
 function isTruthy(value) {
@@ -85,6 +83,29 @@ function buildStandingsByCircle(standings) {
   return byCircle;
 }
 
+async function recalculateRosterPoints(db, resultsByTeam) {
+  const rostersSnap = await getDocs(collection(db, 'rosters'));
+  if (rostersSnap.empty) return;
+
+  let batch = writeBatch(db);
+  let ops = 0;
+
+  for (const snap of rostersSnap.docs) {
+    const r = snap.data();
+    const teamIds = (r.teamIds || []).map(String).filter(Boolean);
+    const points = teamIds.reduce((sum, id) => sum + scoreTeam(id, resultsByTeam), 0);
+    batch.update(snap.ref, { points });
+    ops++;
+    if (ops >= 450) {
+      await batch.commit();
+      batch = writeBatch(db);
+      ops = 0;
+    }
+  }
+
+  if (ops > 0) await batch.commit();
+}
+
 async function syncResultsIfStale() {
   const db = getDb();
   const configRef = doc(db, 'config', 'settings');
@@ -99,14 +120,25 @@ async function syncResultsIfStale() {
   const computed = computeResultsFromWorldCupApi(groupsPayload, gamesPayload);
   const syncedAt = new Date().toISOString();
 
-  await Promise.all(
-    Object.keys(TEAM_BY_ID).map((teamId) =>
-      setDoc(doc(db, 'results', teamId), {
-        ...computed[teamId],
-        updatedAt: syncedAt,
-      })
-    )
-  );
+  let batch = writeBatch(db);
+  let ops = 0;
+
+  for (const teamId of Object.keys(TEAM_BY_ID)) {
+    batch.set(doc(db, 'results', teamId), {
+      ...computed[teamId],
+      updatedAt: syncedAt,
+    });
+    ops++;
+    if (ops >= 450) {
+      await batch.commit();
+      batch = writeBatch(db);
+      ops = 0;
+    }
+  }
+
+  if (ops > 0) await batch.commit();
+
+  await recalculateRosterPoints(db, computed);
 
   await setDoc(
     configRef,
@@ -183,11 +215,28 @@ export async function fetchData() {
 
 async function findPlayerByName(name) {
   const db = getDb();
-  const nameLower = normalizeFirstName(name).toLowerCase();
-  const snap = await getDocs(query(collection(db, 'players'), where('nameLower', '==', nameLower)));
-  if (snap.empty) return null;
-  const docSnap = snap.docs[0];
-  return { id: docSnap.id, ...docSnap.data() };
+  const trimmed = String(name || '').trim();
+  const nameLower = trimmed.toLowerCase();
+
+  const exactSnap = await getDocs(
+    query(collection(db, 'players'), where('nameLower', '==', nameLower))
+  );
+  if (!exactSnap.empty) {
+    const docSnap = exactSnap.docs[0];
+    return { id: docSnap.id, ...docSnap.data() };
+  }
+
+  const allSnap = await getDocs(collection(db, 'players'));
+  const players = allSnap.docs.map((snap) => ({
+    playerId: snap.id,
+    name: String(snap.data().name || ''),
+    circle: snap.data().circle,
+  }));
+  const match = findPlayerByLoginName(trimmed, players);
+  if (!match) return null;
+
+  const docSnap = allSnap.docs.find((snap) => snap.id === match.playerId);
+  return docSnap ? { id: docSnap.id, ...docSnap.data() } : null;
 }
 
 async function isRosterLocked(playerId) {
@@ -211,7 +260,7 @@ async function createPlayerId(name) {
 }
 
 export async function join(name, circle) {
-  const trimmed = normalizeFirstName(name);
+  const trimmed = String(name || '').trim();
   if (!trimmed) throw new Error('Please enter your first name.');
   if (trimmed.length < 2) throw new Error('First name must be at least 2 characters.');
 
@@ -236,16 +285,17 @@ export async function join(name, circle) {
 
   const db = getDb();
   const playerId = await createPlayerId(trimmed);
+  const displayName = trimmed.split(/\s+/)[0] || trimmed;
 
   await setDoc(doc(db, 'players', playerId), {
-    name: trimmed,
-    nameLower: trimmed.toLowerCase(),
+    name: displayName,
+    nameLower: displayName.toLowerCase(),
     circle: playerCircle,
     createdAt: new Date().toISOString(),
   });
 
   return {
-    player: { playerId, name: trimmed, circle: playerCircle },
+    player: { playerId, name: displayName, circle: playerCircle },
     isNew: true,
     rosterLocked: false,
   };

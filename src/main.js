@@ -12,7 +12,7 @@ import {
   validateRoster,
 } from './selection.js';
 import { clearCachedData, getCachedData, isCacheFresh, setCachedData } from './cache.js';
-import { findPlayerByLoginName, isLegacyPinLoginError, normalizeLoginName } from './player-match.js';
+import { findPlayerByLoginName, normalizeLoginName } from './player-match.js';
 import { clearDraft, clearSession, getDraft, getSession, saveDraft, setSession } from './state.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -66,11 +66,6 @@ async function refreshDataInBackground() {
 
   try {
     await loadData({ force: true });
-    if (appData.apiVersion !== 2) {
-      showError(
-        'Google Apps Script needs redeploying. Open apps-script/Code.gs, paste it into Apps Script, save, then Deploy → Manage deployments → Edit → New version → Deploy. Look for "apiVersion":2 in your Web App URL.'
-      );
-    }
 
     const session = getSession();
     if (session) {
@@ -338,10 +333,6 @@ async function onLogin(e) {
       // Fall through to error message below.
     }
 
-    if (isLegacyPinLoginError(err.message)) {
-      showError('Found your name on the roster, but the server still expects PINs. Redeploy apps-script/Code.gs in Google Apps Script.');
-      return;
-    }
     showError(err.message);
   } finally {
     showLoading(false);
