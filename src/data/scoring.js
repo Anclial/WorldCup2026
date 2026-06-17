@@ -24,3 +24,49 @@ export function getTierScoringSummary(tier) {
   const knockout = KNOCKOUT_MULTIPLIERS[tier];
   return `Group win ${group.win} · draw ${group.draw} · Knockout ${knockout.value} base`;
 }
+
+export function isResultFlagged(value) {
+  if (typeof value === 'boolean') return value;
+  const s = String(value ?? '').toLowerCase().trim();
+  return s === 'true' || s === 'yes' || s === '1' || s === 'y';
+}
+
+/** Points accrued by one team from group + knockout results. */
+export function scoreTeamPoints(teamId, result, teamById) {
+  const team = teamById[teamId];
+  if (!team || !result) return 0;
+
+  const groupPts = GROUP_STAGE_POINTS[team.tier];
+  const wins = Number(result.group_wins) || 0;
+  const draws = Number(result.group_draws) || 0;
+  const groupScore = wins * groupPts.win + draws * groupPts.draw;
+
+  const multiplier = team.tier === 1 ? 1 : team.tier === 2 ? 1.5 : 2.5;
+  let knockoutScore = 0;
+  KNOCKOUT_ROUNDS.forEach((round) => {
+    if (isResultFlagged(result[round.key])) knockoutScore += round.points * multiplier;
+  });
+
+  return groupScore + knockoutScore;
+}
+
+export function hasTeamPlayed(result) {
+  if (!result) return false;
+  if (Number(result.matches_played || 0) > 0) return true;
+  if ((Number(result.group_wins) || 0) > 0 || (Number(result.group_draws) || 0) > 0) return true;
+  return KNOCKOUT_ROUNDS.some((round) => isResultFlagged(result[round.key]));
+}
+
+export function formatTeamPointSuffix(teamId, result, teamById) {
+  if (!hasTeamPlayed(result)) return '*';
+  const points = scoreTeamPoints(teamId, result, teamById);
+  if (points === 0) return '0';
+  return Number.isInteger(points) ? String(points) : Number(points).toFixed(1);
+}
+
+export function formatTeamLeaderboardLabel(teamId, resultsByTeam, teamById) {
+  const team = teamById[teamId];
+  if (!team) return '';
+  const suffix = formatTeamPointSuffix(teamId, resultsByTeam[teamId], teamById);
+  return `${team.name} (${suffix})`;
+}

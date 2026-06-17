@@ -8,7 +8,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { GROUP_STAGE_POINTS, KNOCKOUT_ROUNDS } from './data/scoring.js';
+import { scoreTeamPoints } from './data/scoring.js';
 import { TEAM_BY_ID } from './data/teams.js';
 import { computeResultsFromWorldCupApi, fetchWorldCupApiData } from './data/worldcup-sync.js';
 import { getDb } from './firebase.js';
@@ -43,22 +43,7 @@ function isTruthy(value) {
 }
 
 function scoreTeam(teamId, resultsByTeam) {
-  const team = TEAM_BY_ID[teamId];
-  const result = resultsByTeam[teamId];
-  if (!team || !result) return 0;
-
-  const groupPts = GROUP_STAGE_POINTS[team.tier];
-  const wins = Number(result.group_wins) || 0;
-  const draws = Number(result.group_draws) || 0;
-  const groupScore = wins * groupPts.win + draws * groupPts.draw;
-
-  const multiplier = team.tier === 1 ? 1 : team.tier === 2 ? 1.5 : 2.5;
-  let knockoutScore = 0;
-  KNOCKOUT_ROUNDS.forEach((round) => {
-    if (isTruthy(result[round.key])) knockoutScore += round.points * multiplier;
-  });
-
-  return groupScore + knockoutScore;
+  return scoreTeamPoints(teamId, resultsByTeam[teamId], TEAM_BY_ID);
 }
 
 function buildStandings(players, rosters) {
@@ -158,10 +143,11 @@ async function syncResultsIfStale() {
 
 async function readAppDataFromFirestore() {
   const db = getDb();
-  const [playersSnap, rostersSnap, configSnap] = await Promise.all([
+  const [playersSnap, rostersSnap, configSnap, resultsSnap] = await Promise.all([
     getDocs(collection(db, 'players')),
     getDocs(collection(db, 'rosters')),
     getDoc(doc(db, 'config', 'settings')),
+    getDocs(collection(db, 'results')),
   ]);
 
   const players = playersSnap.docs.map((snap) => {
@@ -186,6 +172,10 @@ async function readAppDataFromFirestore() {
 
   const standings = buildStandings(players, rosters);
   const config = configSnap.exists() ? configSnap.data() : {};
+  const resultsByTeam = {};
+  resultsSnap.docs.forEach((snap) => {
+    resultsByTeam[snap.id] = snap.data();
+  });
 
   return {
     apiVersion: 2,
@@ -193,6 +183,7 @@ async function readAppDataFromFirestore() {
     rosters,
     standings,
     standingsByCircle: buildStandingsByCircle(standings),
+    resultsByTeam,
     entriesLocked: isTruthy(config.entries_locked),
     scoresSyncedAt: config.scores_synced_at || '',
     autoScores: true,

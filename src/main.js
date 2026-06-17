@@ -1,7 +1,7 @@
 import { fetchAppData, join, submitRoster, syncScoresInBackground } from './api.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
 import { WIN_ODDS_RANK } from './data/odds.js';
-import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS } from './data/scoring.js';
+import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS, formatTeamLeaderboardLabel } from './data/scoring.js';
 import { RULES, TEAM_BY_ID, TIERS } from './data/teams.js';
 import {
   getDisableReason,
@@ -32,6 +32,7 @@ let appData = {
   entriesLocked: false,
   scoresSyncedAt: '',
   autoScores: false,
+  resultsByTeam: {},
 };
 let isSaving = false;
 let boardMounted = false;
@@ -140,6 +141,7 @@ function applyAppDataFromResponse(data) {
     entriesLocked: !!data.entriesLocked,
     scoresSyncedAt: data.scoresSyncedAt || '',
     autoScores: !!data.autoScores,
+    resultsByTeam: data.resultsByTeam || {},
   };
   (data.rosters || []).forEach((r) => {
     appData.rosters[r.playerId] = r.teamIds || [];
@@ -914,8 +916,10 @@ function renderLeaderboardTable(rows) {
 
   const enriched = rows.map((row, i) => {
     const picks = appData.rosters[row.playerId] || [];
-    const teamNames = picks.map((id) => TEAM_BY_ID[id]?.name).filter(Boolean);
-    return { ...row, rank: i + 1, teams: teamNames };
+    const teamLabels = picks
+      .map((id) => formatTeamLeaderboardLabel(id, appData.resultsByTeam, TEAM_BY_ID))
+      .filter(Boolean);
+    return { ...row, rank: i + 1, teams: teamLabels };
   });
 
   return `
@@ -966,7 +970,7 @@ function renderLeaderboard() {
         appData.scoresSyncedAt
           ? ` · Last synced ${escapeHtml(formatScoresSyncedAt(appData.scoresSyncedAt))}`
           : ''
-      }.</p>`
+      }. <span class="scores-legend">Team points: (1.5) scored · (0) played, no points · (*) not played yet</span></p>`
     : '';
 
   section.innerHTML = `

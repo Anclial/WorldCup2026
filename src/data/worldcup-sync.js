@@ -71,6 +71,7 @@ function emptyResultRow() {
   return {
     group_wins: 0,
     group_draws: 0,
+    matches_played: 0,
     r32: 0,
     r16: 0,
     qf: 0,
@@ -167,6 +168,7 @@ function applyGroupStatsToResults(stats, results) {
     if (!results[slug]) return;
     results[slug].group_wins = row.w;
     results[slug].group_draws = row.d;
+    results[slug].matches_played = row.mp;
   });
 }
 
@@ -199,6 +201,7 @@ export function computeResultsFromWorldCupApi(groupsPayload, gamesPayload) {
       if (!slug || !results[slug]) return;
       results[slug].group_wins = Number(entry.w) || 0;
       results[slug].group_draws = Number(entry.d) || 0;
+      results[slug].matches_played = Number(entry.mp) || 0;
     });
 
     const { stats, finishedGames } = buildGroupStatsFromGames(games, teamApiIds);

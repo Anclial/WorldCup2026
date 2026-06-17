@@ -260,6 +260,14 @@ body {
   border: 1px solid #3ecf8e44;
   color: var(--text-muted);
   font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.scores-legend {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  opacity: 0.9;
 }
 
 .locked-banner {
