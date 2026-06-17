@@ -105,12 +105,81 @@ function normalizeGamesPayload(payload) {
   return [];
 }
 
-function compareGroupRows(a, b) {
-  const ptsDiff = (Number(b.pts) || 0) - (Number(a.pts) || 0);
-  if (ptsDiff !== 0) return ptsDiff;
-  const gdDiff = (Number(b.gd) || 0) - (Number(a.gd) || 0);
-  if (gdDiff !== 0) return gdDiff;
-  return (Number(b.gf) || 0) - (Number(a.gf) || 0);
+function getGroupTeamApiIds(group) {
+  return (group.teams || []).map((entry) => String(entry.team_id || '')).filter(Boolean);
+}
+
+function getGroupGames(games, teamApiIds) {
+  const idSet = new Set(teamApiIds);
+  return games.filter((game) => {
+    if (String(game.type || '') !== 'group') return false;
+    return idSet.has(String(game.home_team_id || '')) && idSet.has(String(game.away_team_id || ''));
+  });
+}
+
+function buildGroupStatsFromGames(games, teamApiIds) {
+  const stats = {};
+  teamApiIds.forEach((apiId) => {
+    const slug = slugFromApiTeamId(apiId);
+    if (!slug) return;
+    stats[slug] = { mp: 0, w: 0, d: 0, gf: 0, ga: 0, gd: 0, pts: 0 };
+  });
+
+  let finishedGames = 0;
+  getGroupGames(games, teamApiIds).forEach((game) => {
+    if (!isGameFinished(game)) return;
+
+    const homeId = String(game.home_team_id || '');
+    const awayId = String(game.away_team_id || '');
+    const homeSlug = slugFromApiTeamId(homeId);
+    const awaySlug = slugFromApiTeamId(awayId);
+    const homeScore = Number(game.home_score);
+    const awayScore = Number(game.away_score);
+    if (!homeSlug || !awaySlug || !stats[homeSlug] || !stats[awaySlug]) return;
+    if (Number.isNaN(homeScore) || Number.isNaN(awayScore)) return;
+
+    finishedGames++;
+    stats[homeSlug].mp++;
+    stats[awaySlug].mp++;
+    stats[homeSlug].gf += homeScore;
+    stats[homeSlug].ga += awayScore;
+    stats[awaySlug].gf += awayScore;
+    stats[awaySlug].ga += homeScore;
+
+    if (homeScore > awayScore) stats[homeSlug].w++;
+    else if (awayScore > homeScore) stats[awaySlug].w++;
+    else {
+      stats[homeSlug].d++;
+      stats[awaySlug].d++;
+    }
+  });
+
+  Object.values(stats).forEach((row) => {
+    row.gd = row.gf - row.ga;
+    row.pts = row.w * 3 + row.d;
+  });
+
+  return { stats, finishedGames };
+}
+
+function applyGroupStatsToResults(stats, results) {
+  Object.entries(stats).forEach(([slug, row]) => {
+    if (!results[slug]) return;
+    results[slug].group_wins = row.w;
+    results[slug].group_draws = row.d;
+  });
+}
+
+function rankGroupStats(stats) {
+  return Object.entries(stats)
+    .map(([slug, row]) => ({ slug, ...row }))
+    .sort((a, b) => {
+      const ptsDiff = b.pts - a.pts;
+      if (ptsDiff !== 0) return ptsDiff;
+      const gdDiff = b.gd - a.gd;
+      if (gdDiff !== 0) return gdDiff;
+      return b.gf - a.gf;
+    });
 }
 
 /**
@@ -122,7 +191,9 @@ export function computeResultsFromWorldCupApi(groupsPayload, gamesPayload) {
   const games = normalizeGamesPayload(gamesPayload);
 
   groups.forEach((group) => {
+    const teamApiIds = getGroupTeamApiIds(group);
     const teams = group.teams || [];
+
     teams.forEach((entry) => {
       const slug = slugFromApiTeamId(entry.team_id);
       if (!slug || !results[slug]) return;
@@ -130,15 +201,39 @@ export function computeResultsFromWorldCupApi(groupsPayload, gamesPayload) {
       results[slug].group_draws = Number(entry.d) || 0;
     });
 
-    const allFinished = teams.length === 4 && teams.every((t) => Number(t.mp) >= 3);
-    if (allFinished) {
-      [...teams]
-        .sort(compareGroupRows)
-        .slice(0, 2)
-        .forEach((entry) => {
-          const slug = slugFromApiTeamId(entry.team_id);
-          if (slug && results[slug]) setFlag(results[slug], 'r32');
-        });
+    const { stats, finishedGames } = buildGroupStatsFromGames(games, teamApiIds);
+    if (finishedGames > 0) {
+      applyGroupStatsToResults(stats, results);
+    }
+
+    const allFinishedFromTable = teams.length === 4 && teams.every((t) => Number(t.mp) >= 3);
+    const allFinishedFromGames =
+      teamApiIds.length === 4 &&
+      teamApiIds.every((apiId) => {
+        const slug = slugFromApiTeamId(apiId);
+        return slug && stats[slug] && stats[slug].mp >= 3;
+      });
+
+    if (allFinishedFromTable || allFinishedFromGames) {
+      const ranked = finishedGames > 0 ? rankGroupStats(stats) : rankGroupStats(
+        Object.fromEntries(
+          teams.map((entry) => {
+            const slug = slugFromApiTeamId(entry.team_id);
+            return [
+              slug,
+              {
+                pts: Number(entry.pts) || 0,
+                gd: Number(entry.gd) || 0,
+                gf: Number(entry.gf) || 0,
+              },
+            ];
+          }).filter(([slug]) => slug && results[slug])
+        )
+      );
+
+      ranked.slice(0, 2).forEach((entry) => {
+        if (entry.slug && results[entry.slug]) setFlag(results[entry.slug], 'r32');
+      });
     }
   });
 
