@@ -246,13 +246,6 @@ export function computeResultsFromWorldCupApi(groupsPayload, gamesPayload) {
 
     const homeId = String(game.home_team_id || '0');
     const awayId = String(game.away_team_id || '0');
-    [homeId, awayId].forEach((apiId) => {
-      if (apiId === '0') return;
-      const slug = slugFromApiTeamId(apiId);
-      if (!slug || !results[slug]) return;
-      if (type === 'r32' || KNOCKOUT_TYPES.includes(type)) setFlag(results[slug], 'r32');
-      if (type === 'final') setFlag(results[slug], 'final');
-    });
 
     if (!isGameFinished(game) || homeId === '0' || awayId === '0') return;
 
