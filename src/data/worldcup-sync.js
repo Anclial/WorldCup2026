@@ -94,6 +94,27 @@ function isGameFinished(game) {
   return finished === 'TRUE' || finished === '1' || game?.time_elapsed === 'finished';
 }
 
+function resolveKnockoutWinnerId(game) {
+  const homeId = String(game.home_team_id || '0');
+  const awayId = String(game.away_team_id || '0');
+  if (homeId === '0' || awayId === '0') return null;
+
+  const homeScore = Number(game.home_score);
+  const awayScore = Number(game.away_score);
+  if (Number.isNaN(homeScore) || Number.isNaN(awayScore)) return null;
+
+  if (homeScore > awayScore) return homeId;
+  if (awayScore > homeScore) return awayId;
+
+  const homePen = Number(game.home_penalty_score);
+  const awayPen = Number(game.away_penalty_score);
+  if (!Number.isNaN(homePen) && !Number.isNaN(awayPen) && homePen !== awayPen) {
+    return homePen > awayPen ? homeId : awayId;
+  }
+
+  return null;
+}
+
 function normalizeGroupsPayload(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.groups)) return payload.groups;
@@ -243,20 +264,20 @@ export function computeResultsFromWorldCupApi(groupsPayload, gamesPayload) {
   games.forEach((game) => {
     const type = String(game.type || '');
     if (type === 'group') return;
+    if (!isGameFinished(game)) return;
 
     const homeId = String(game.home_team_id || '0');
     const awayId = String(game.away_team_id || '0');
+    if (homeId === '0' || awayId === '0') return;
 
-    if (!isGameFinished(game) || homeId === '0' || awayId === '0') return;
+    if (KNOCKOUT_TYPES.includes(type)) {
+      [homeId, awayId].forEach((apiId) => {
+        const slug = slugFromApiTeamId(apiId);
+        if (slug && results[slug]) setFlag(results[slug], 'r32');
+      });
+    }
 
-    const homeScore = Number(game.home_score);
-    const awayScore = Number(game.away_score);
-    if (Number.isNaN(homeScore) || Number.isNaN(awayScore)) return;
-
-    let winnerId = null;
-    if (homeScore > awayScore) winnerId = homeId;
-    else if (awayScore > homeScore) winnerId = awayId;
-
+    const winnerId = resolveKnockoutWinnerId(game);
     if (!winnerId || !KNOCKOUT_TYPES.includes(type)) return;
 
     const winnerSlug = slugFromApiTeamId(winnerId);
