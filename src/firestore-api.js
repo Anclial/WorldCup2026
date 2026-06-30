@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { scoreTeamPoints } from './data/scoring.js';
 import { TEAM_BY_ID } from './data/teams.js';
+import { normalizeKnockoutGames } from './data/bracket.js';
 import { computeResultsFromWorldCupApi, fetchWorldCupApiData } from './data/worldcup-sync.js';
 import { getDb } from './firebase.js';
 import { findExactPlayerByLoginName, findPlayerByLoginName } from './player-match.js';
@@ -193,6 +194,11 @@ async function readAppDataFromFirestore() {
 /** Fast read — Firestore only, no live score sync. */
 export async function fetchAppData() {
   return readAppDataFromFirestore();
+}
+
+export async function fetchBracketGames() {
+  const { gamesPayload } = await fetchWorldCupApiData();
+  return normalizeKnockoutGames(gamesPayload);
 }
 
 /** Sync live scores if stale, then return fresh app data (or null if skipped). */

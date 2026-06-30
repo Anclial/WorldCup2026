@@ -1,5 +1,9 @@
 import * as firestoreApi from './firestore-api.js';
 
+export function fetchBracketGames() {
+  return firestoreApi.fetchBracketGames();
+}
+
 export function fetchAppData() {
   return firestoreApi.fetchAppData();
 }

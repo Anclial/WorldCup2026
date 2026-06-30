@@ -1,4 +1,14 @@
-import { fetchAppData, join, submitRoster, syncScoresInBackground } from './api.js';
+import { fetchAppData, fetchBracketGames, join, submitRoster, syncScoresInBackground } from './api.js';
+import {
+  BRACKET_ROUNDS,
+  formatBracketScore,
+  formatMatchTimeET,
+  getBracketTeamName,
+  getBracketTeamSlug,
+  getBracketWinnerSide,
+  groupGamesByRound,
+  isBracketGameFinished,
+} from './data/bracket.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
 import { WIN_ODDS_RANK } from './data/odds.js';
 import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS, formatTeamLeaderboardLabel } from './data/scoring.js';
@@ -34,6 +44,8 @@ let appData = {
   autoScores: false,
   resultsByTeam: {},
 };
+let bracketGames = null;
+let bracketLoading = false;
 let isSaving = false;
 let boardMounted = false;
 let boardClickBound = false;
@@ -68,6 +80,7 @@ async function init() {
 function applyFreshAppData(data) {
   setCachedData(data);
   applyAppDataFromResponse(data);
+  bracketGames = null;
   refreshVisibleTab();
 }
 
@@ -82,6 +95,7 @@ function refreshVisibleTab() {
   }
   if (activeTab === 'leaderboard') renderLeaderboard();
   if (activeTab === 'everyone') renderEveryone();
+  if (activeTab === 'bracket') renderBracket();
 }
 
 function runBackgroundScoreSync() {
@@ -572,12 +586,14 @@ async function switchTab(tab) {
   $('#board-section').classList.toggle('hidden', tab !== 'board');
   $('#board-header-slot').classList.toggle('hidden', tab !== 'board');
   $('#leaderboard-section').classList.toggle('hidden', tab !== 'leaderboard');
+  $('#bracket-section').classList.toggle('hidden', tab !== 'bracket');
   $('#everyone-section').classList.toggle('hidden', tab !== 'everyone');
   $('#rules-section').classList.toggle('hidden', tab !== 'rules');
   $('#odds-section').classList.toggle('hidden', tab !== 'odds');
 
   if (tab === 'board') renderBoard();
   if (tab === 'leaderboard') renderLeaderboard();
+  if (tab === 'bracket') renderBracket();
   if (tab === 'everyone') renderEveryone();
   if (tab === 'rules') renderRules();
   if (tab === 'odds') renderOdds();
@@ -585,6 +601,113 @@ async function switchTab(tab) {
   if (tab === 'leaderboard' || tab === 'everyone') {
     runBackgroundScoreSync();
   }
+}
+
+function getUserRosterTeamIds() {
+  const session = getSession();
+  if (!session) return new Set();
+  return new Set(appData.rosters[session.playerId] || []);
+}
+
+function renderBracketMatch(game) {
+  const finished = isBracketGameFinished(game);
+  const score = formatBracketScore(game);
+  const winner = getBracketWinnerSide(game);
+  const rosterIds = getUserRosterTeamIds();
+
+  const renderTeam = (side) => {
+    const slug = getBracketTeamSlug(game, side);
+    const name = getBracketTeamName(game, side);
+    const isPick = slug && rosterIds.has(slug);
+    const isWinner = finished && winner === side;
+    const isLoser = finished && winner && winner !== side;
+    const classes = [
+      'bracket-team',
+      side,
+      isPick ? 'is-pick' : '',
+      isWinner ? 'is-winner' : '',
+      isLoser ? 'is-loser' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    return `
+      <div class="${classes}">
+        <span class="bracket-team-name">${escapeHtml(name)}</span>
+        ${isPick ? '<span class="bracket-pick-tag">Your pick</span>' : ''}
+      </div>`;
+  };
+
+  const center = finished
+    ? `<div class="bracket-score">${escapeHtml(score)}</div>`
+    : `<div class="bracket-time">${escapeHtml(formatMatchTimeET(game.local_date, game.stadium_id))}</div>`;
+
+  return `
+    <article class="bracket-match ${finished ? 'is-finished' : 'is-upcoming'}" data-match-id="${escapeHtml(String(game.id))}">
+      ${renderTeam('home')}
+      ${center}
+      ${renderTeam('away')}
+    </article>`;
+}
+
+function renderBracketRound(round, games) {
+  if (!games.length) return '';
+
+  return `
+    <section class="bracket-round" data-round="${round.type}">
+      <h3 class="bracket-round-title">${escapeHtml(round.label)}</h3>
+      <div class="bracket-round-matches">
+        ${games.map((game) => renderBracketMatch(game)).join('')}
+      </div>
+    </section>`;
+}
+
+function renderBracketTree(games) {
+  const byRound = groupGamesByRound(games);
+  return BRACKET_ROUNDS.map((round) => renderBracketRound(round, byRound[round.type] || [])).join('');
+}
+
+async function renderBracket() {
+  const section = $('#bracket-section');
+  if (!section) return;
+
+  if (!bracketGames && !bracketLoading) {
+    bracketLoading = true;
+    section.innerHTML = `
+      <div class="card bracket-card">
+        <h2>Knockout Bracket</h2>
+        <p class="section-desc">Loading bracket…</p>
+      </div>`;
+
+    try {
+      bracketGames = await fetchBracketGames();
+    } catch (err) {
+      section.innerHTML = `
+        <div class="card bracket-card">
+          <h2>Knockout Bracket</h2>
+          <p class="section-desc bracket-error">Could not load bracket: ${escapeHtml(err.message)}</p>
+          <button type="button" class="btn btn-ghost btn-sm" id="bracket-retry">Try again</button>
+        </div>`;
+      $('#bracket-retry')?.addEventListener('click', () => {
+        bracketGames = null;
+        renderBracket();
+      });
+      return;
+    } finally {
+      bracketLoading = false;
+    }
+  }
+
+  if (!bracketGames) return;
+
+  section.innerHTML = `
+    <div class="card bracket-card">
+      <h2>Knockout Bracket</h2>
+      <p class="section-desc">Follow the knockout stage from the Round of 32 through the Final. Upcoming kickoffs are shown in <strong>ET</strong>.</p>
+      <div class="bracket-tree">
+        ${renderBracketTree(bracketGames)}
+      </div>
+    </div>`;
 }
 
 function renderOdds() {
