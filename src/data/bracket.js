@@ -49,14 +49,9 @@ function parseLocalDateString(localDate) {
   };
 }
 
-/** Convert API local_date + stadium to a UTC instant. */
-export function stadiumLocalToDate(localDate, stadiumId) {
-  const parts = parseLocalDateString(localDate);
-  if (!parts) return null;
-
-  const sourceTz = STADIUM_TIMEZONE[Number(stadiumId)] || ET_TIMEZONE;
+function getWallClockInTimezone(date, timeZone) {
   const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: sourceTz,
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -64,20 +59,39 @@ export function stadiumLocalToDate(localDate, stadiumId) {
     minute: '2-digit',
     hour12: false,
   });
+  const mapped = Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value])
+  );
+  return {
+    year: Number(mapped.year),
+    month: Number(mapped.month),
+    day: Number(mapped.day),
+    hour: Number(mapped.hour),
+    minute: Number(mapped.minute),
+  };
+}
 
+/** Convert API local_date + stadium to a UTC instant. */
+export function stadiumLocalToDate(localDate, stadiumId) {
+  const parts = parseLocalDateString(localDate);
+  if (!parts) return null;
+
+  const sourceTz = STADIUM_TIMEZONE[Number(stadiumId)] || ET_TIMEZONE;
   let timestamp = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
-  for (let i = 0; i < 6; i++) {
-    const mapped = Object.fromEntries(
-      formatter.formatToParts(new Date(timestamp)).map((p) => [p.type, p.value])
+
+  for (let i = 0; i < 10; i++) {
+    const wallClock = getWallClockInTimezone(new Date(timestamp), sourceTz);
+    const wanted = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
+    const current = Date.UTC(
+      wallClock.year,
+      wallClock.month - 1,
+      wallClock.day,
+      wallClock.hour,
+      wallClock.minute
     );
-    const deltaMinutes =
-      (parts.year - Number(mapped.year)) * 525600 +
-      (parts.month - Number(mapped.month)) * 43200 +
-      (parts.day - Number(mapped.day)) * 1440 +
-      (parts.hour - Number(mapped.hour)) * 60 +
-      (parts.minute - Number(mapped.minute));
-    if (deltaMinutes === 0) break;
-    timestamp -= deltaMinutes * 60_000;
+    const deltaMs = wanted - current;
+    if (deltaMs === 0) break;
+    timestamp += deltaMs;
   }
 
   return new Date(timestamp);
