@@ -1050,14 +1050,199 @@ body {
   font-weight: 400;
 }
 
-.bracket-tree {
-  display: flex;
-  flex-direction: column;
-  gap: 1.75rem;
-  margin-top: 1.25rem;
+.bracket-scroll {
+  margin-top: 1rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.5rem;
 }
 
-.bracket-round-title {
+.bracket-board {
+  --bracket-line: #5a6d86;
+  --bracket-fixture-width: 15.5rem;
+  --bracket-connector-width: 1.35rem;
+  min-width: max-content;
+  padding: 0.25rem 0.5rem 0.5rem;
+}
+
+.bracket-round-labels {
+  display: grid;
+  grid-template-columns: repeat(5, calc(var(--bracket-fixture-width) + var(--bracket-connector-width) * 3));
+  gap: 0;
+  margin-bottom: 0.85rem;
+  padding-left: 0.15rem;
+}
+
+.bracket-round-labels span {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.bracket-board-tree {
+  display: inline-flex;
+  min-height: 12rem;
+}
+
+.bracket-node {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.bracket-feeders {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.bracket-node--leaf {
+  display: flex;
+  align-items: center;
+}
+
+.bracket-join {
+  display: flex;
+  align-items: stretch;
+  width: var(--bracket-connector-width);
+  flex-shrink: 0;
+}
+
+.bracket-connector {
+  flex: 1;
+  margin: auto 0;
+  min-height: 2.5rem;
+  border: 2px solid var(--bracket-line);
+  border-left: none;
+  border-radius: 0 0.4rem 0.4rem 0;
+}
+
+.bracket-node-match {
+  display: flex;
+  align-items: center;
+}
+
+.bracket-fixture {
+  position: relative;
+  width: var(--bracket-fixture-width);
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--bg-elevated);
+  overflow: visible;
+}
+
+.bracket-fixture::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: calc(-1 * var(--bracket-connector-width));
+  width: var(--bracket-connector-width);
+  border-top: 2px solid var(--bracket-line);
+  pointer-events: none;
+}
+
+.bracket-board-tree > .bracket-node > .bracket-node-match > .bracket-fixture::after {
+  display: none;
+}
+
+.bracket-fixture-head {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bracket-fixture-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.bracket-slot {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.65rem;
+  min-height: 2.15rem;
+}
+
+.bracket-slot + .bracket-slot {
+  border-top: 1px solid var(--border);
+}
+
+.bracket-flag {
+  font-size: 1rem;
+  line-height: 1;
+  width: 1.15rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.bracket-flag--tbd {
+  opacity: 0.45;
+  font-size: 0.85rem;
+}
+
+.bracket-slot-name {
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.25;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.bracket-slot.is-placeholder .bracket-slot-name {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.bracket-slot.is-winner .bracket-slot-name {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.bracket-slot.is-loser .bracket-slot-name {
+  color: var(--text-muted);
+}
+
+.bracket-slot.is-pick .bracket-slot-name {
+  color: var(--accent);
+}
+
+.bracket-slot-score {
+  font-size: 0.84rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bracket-pen {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.bracket-winner-arrow {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--text);
+  flex-shrink: 0;
+}
+
+.bracket-third {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.bracket-third-title {
   margin: 0 0 0.75rem;
   font-size: 0.95rem;
   font-weight: 600;
@@ -1066,111 +1251,21 @@ body {
   text-transform: uppercase;
 }
 
-.bracket-round-matches {
-  display: grid;
-  gap: 0.65rem;
-}
-
-.bracket-match {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: stretch;
-  gap: 0.5rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-}
-
-.bracket-match.is-finished {
-  border-color: #2a364880;
-}
-
-.bracket-team {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
-.bracket-team.home {
-  text-align: right;
-  align-items: flex-end;
-}
-
-.bracket-team.away {
-  text-align: left;
-  align-items: flex-start;
-}
-
-.bracket-team-name {
-  font-weight: 500;
-  line-height: 1.3;
-  word-break: break-word;
-}
-
-.bracket-team.is-winner .bracket-team-name {
-  color: var(--emerald);
-  font-weight: 700;
-}
-
-.bracket-team.is-loser .bracket-team-name {
-  color: var(--text-muted);
-}
-
-.bracket-team.is-pick .bracket-team-name {
-  color: var(--accent);
-}
-
-.bracket-pick-tag {
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--accent);
-  opacity: 0.85;
-}
-
-.bracket-score,
-.bracket-time {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 5.5rem;
-  padding: 0.35rem 0.5rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-align: center;
-  border-radius: 6px;
-}
-
-.bracket-score {
-  color: var(--text);
-  background: var(--bg-card);
-}
-
-.bracket-time {
-  color: var(--blue);
-  background: var(--blue-dim);
-  font-weight: 500;
-  line-height: 1.25;
-  font-size: 0.78rem;
+.bracket-third-match .bracket-fixture::after {
+  display: none;
 }
 
 .bracket-error {
   color: var(--danger);
 }
 
-@media (min-width: 640px) {
-  .bracket-round-matches {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 640px) {
+  .bracket-board {
+    --bracket-fixture-width: 13.5rem;
   }
 
-  .bracket-round[data-round='final'] .bracket-round-matches,
-  .bracket-round[data-round='third'] .bracket-round-matches {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: 28rem;
+  .bracket-round-labels {
+    display: none;
   }
 }
 
