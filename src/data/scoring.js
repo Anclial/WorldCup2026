@@ -64,6 +64,11 @@ export function formatTeamPointSuffix(teamId, result, teamById) {
   return Number.isInteger(points) ? String(points) : Number(points).toFixed(1);
 }
 
+export function isTeamEliminated(result) {
+  if (!result || !hasTeamPlayed(result)) return false;
+  return isResultFlagged(result.eliminated);
+}
+
 export function formatTeamLeaderboardLabel(teamId, resultsByTeam, teamById) {
   const team = teamById[teamId];
   if (!team) return '';

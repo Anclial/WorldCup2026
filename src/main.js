@@ -2,7 +2,7 @@ import { fetchAppData, fetchBracketGames, join, submitRoster, syncScoresInBackgr
 import { renderBracketBoardHtml } from './data/bracket-render.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
 import { WIN_ODDS_RANK } from './data/odds.js';
-import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS, formatTeamLeaderboardLabel } from './data/scoring.js';
+import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS, formatTeamLeaderboardLabel, isTeamEliminated } from './data/scoring.js';
 import { RULES, TEAM_BY_ID, TIERS } from './data/teams.js';
 import {
   getDisableReason,
@@ -965,6 +965,15 @@ function renderTeamCard(team, selectedIds, locked) {
   `;
 }
 
+function renderTeamLeaderboardLabel(teamId) {
+  const label = formatTeamLeaderboardLabel(teamId, appData.resultsByTeam, TEAM_BY_ID);
+  if (!label) return '';
+  if (isTeamEliminated(appData.resultsByTeam[teamId])) {
+    return `<span class="roster-team-eliminated">${escapeHtml(label)}</span>`;
+  }
+  return escapeHtml(label);
+}
+
 function renderLeaderboardTable(rows) {
   if (!rows.length) {
     return '<p class="leaderboard-empty">No players in this group yet.</p>';
@@ -972,9 +981,7 @@ function renderLeaderboardTable(rows) {
 
   const enriched = rows.map((row, i) => {
     const picks = appData.rosters[row.playerId] || [];
-    const teamLabels = picks
-      .map((id) => formatTeamLeaderboardLabel(id, appData.resultsByTeam, TEAM_BY_ID))
-      .filter(Boolean);
+    const teamLabels = picks.map((id) => renderTeamLeaderboardLabel(id)).filter(Boolean);
     return { ...row, rank: i + 1, teams: teamLabels };
   });
 
@@ -997,7 +1004,7 @@ function renderLeaderboardTable(rows) {
               <td class="rank">${r.rank}</td>
               <td class="player-name">${escapeHtml(r.name)}</td>
               <td class="points">${formatPoints(r.points)}</td>
-              <td class="roster-preview">${r.teams.length ? r.teams.map(escapeHtml).join(', ') : '<em>No roster yet</em>'}</td>
+              <td class="roster-preview">${r.teams.length ? r.teams.join(', ') : '<em>No roster yet</em>'}</td>
             </tr>`
             )
             .join('')}
@@ -1026,7 +1033,7 @@ function renderLeaderboard() {
         appData.scoresSyncedAt
           ? ` · Last synced ${escapeHtml(formatScoresSyncedAt(appData.scoresSyncedAt))}`
           : ''
-      }. <span class="scores-legend">Team points: (1.5) scored · (0) played, no points · (*) not played yet</span></p>`
+      }. <span class="scores-legend">Team points: (1.5) scored · (0) played, no points · (*) not played yet · <span class="roster-team-eliminated">struck-through</span> eliminated</span></p>`
     : '';
 
   section.innerHTML = `

@@ -78,6 +78,7 @@ function emptyResultRow() {
     sf: 0,
     final: 0,
     champion: 0,
+    eliminated: 0,
   };
 }
 
@@ -205,6 +206,87 @@ function rankGroupStats(stats) {
     });
 }
 
+function isGroupComplete(group, games, teamApiIds, stats) {
+  const teams = group.teams || [];
+  const allFinishedFromTable = teams.length === 4 && teams.every((t) => Number(t.mp) >= 3);
+  const allFinishedFromGames =
+    teamApiIds.length === 4 &&
+    teamApiIds.every((apiId) => {
+      const slug = slugFromApiTeamId(apiId);
+      return slug && stats[slug] && stats[slug].mp >= 3;
+    });
+  return allFinishedFromTable || allFinishedFromGames;
+}
+
+function markTeamEliminated(results, slug) {
+  if (slug && results[slug]) results[slug].eliminated = 1;
+}
+
+function isSlugInKnockoutGames(games, slug) {
+  return games.some((game) => {
+    const type = String(game.type || '');
+    if (type === 'group') return false;
+    return slugFromApiTeamId(game.home_team_id) === slug || slugFromApiTeamId(game.away_team_id) === slug;
+  });
+}
+
+function applyEliminationStatus(results, groups, games) {
+  games.forEach((game) => {
+    const type = String(game.type || '');
+    if (type === 'group' || !isGameFinished(game)) return;
+    if (![...KNOCKOUT_TYPES, 'third'].includes(type)) return;
+
+    const homeId = String(game.home_team_id || '0');
+    const awayId = String(game.away_team_id || '0');
+    if (homeId === '0' || awayId === '0') return;
+
+    const winnerId = resolveKnockoutWinnerId(game);
+    if (!winnerId) return;
+
+    const loserId = winnerId === homeId ? awayId : homeId;
+    markTeamEliminated(results, slugFromApiTeamId(loserId));
+  });
+
+  const anyR32Finished = games.some((game) => String(game.type) === 'r32' && isGameFinished(game));
+
+  groups.forEach((group) => {
+    const teamApiIds = getGroupTeamApiIds(group);
+    const teams = group.teams || [];
+    const { stats, finishedGames } = buildGroupStatsFromGames(games, teamApiIds);
+    if (!isGroupComplete(group, games, teamApiIds, stats)) return;
+
+    const ranked =
+      finishedGames > 0
+        ? rankGroupStats(stats)
+        : rankGroupStats(
+            Object.fromEntries(
+              teams
+                .map((entry) => {
+                  const slug = slugFromApiTeamId(entry.team_id);
+                  return [
+                    slug,
+                    {
+                      pts: Number(entry.pts) || 0,
+                      gd: Number(entry.gd) || 0,
+                      gf: Number(entry.gf) || 0,
+                    },
+                  ];
+                })
+                .filter(([slug]) => slug && results[slug])
+            )
+          );
+
+    if (ranked[3]?.slug) markTeamEliminated(results, ranked[3].slug);
+
+    if (anyR32Finished && ranked[2]?.slug) {
+      const slug = ranked[2].slug;
+      if (results[slug] && !results[slug].r32 && !isSlugInKnockoutGames(games, slug)) {
+        markTeamEliminated(results, slug);
+      }
+    }
+  });
+}
+
 /**
  * Build Results-sheet rows from worldcup26.ir groups + games payloads.
  */
@@ -288,6 +370,8 @@ export function computeResultsFromWorldCupApi(groupsPayload, gamesPayload) {
 
     if (type === 'sf') setFlag(results[winnerSlug], 'final');
   });
+
+  applyEliminationStatus(results, groups, games);
 
   return results;
 }

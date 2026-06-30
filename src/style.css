@@ -893,6 +893,12 @@ body {
   font-size: 0.82rem;
   color: var(--text-muted);
   max-width: 320px;
+  line-height: 1.45;
+}
+
+.roster-team-eliminated {
+  color: var(--danger);
+  text-decoration: line-through;
 }
 
 /* All rosters */
