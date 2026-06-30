@@ -376,6 +376,23 @@ export function computeResultsFromWorldCupApi(groupsPayload, gamesPayload) {
   return results;
 }
 
+/** Merge live elimination status into stored results (no Firestore sync required). */
+export function enrichResultsWithElimination(resultsByTeam, groupsPayload, gamesPayload) {
+  const groups = normalizeGroupsPayload(groupsPayload);
+  const games = normalizeGamesPayload(gamesPayload);
+  const results = Object.fromEntries(
+    Object.keys(TEAM_BY_ID).map((id) => [
+      id,
+      {
+        ...emptyResultRow(),
+        ...(resultsByTeam[id] || {}),
+      },
+    ])
+  );
+  applyEliminationStatus(results, groups, games);
+  return results;
+}
+
 const API_FETCH_TIMEOUT_MS = 60_000;
 
 async function fetchWithTimeout(url) {

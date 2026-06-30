@@ -1,5 +1,6 @@
 import { fetchAppData, fetchBracketGames, join, submitRoster, syncScoresInBackground } from './api.js';
 import { renderBracketBoardHtml } from './data/bracket-render.js';
+import { enrichResultsWithElimination, fetchWorldCupApiData } from './data/worldcup-sync.js';
 import { CIRCLE_BY_ID, PLAYER_CIRCLES } from './data/groups.js';
 import { WIN_ODDS_RANK } from './data/odds.js';
 import { GROUP_STAGE_POINTS, KNOCKOUT_MULTIPLIERS, KNOCKOUT_ROUNDS, formatTeamLeaderboardLabel, isTeamEliminated } from './data/scoring.js';
@@ -37,6 +38,8 @@ let appData = {
 };
 let bracketGames = null;
 let bracketLoading = false;
+let leaderboardResultsByTeam = null;
+let leaderboardResultsLoading = false;
 let isSaving = false;
 let boardMounted = false;
 let boardClickBound = false;
@@ -72,6 +75,7 @@ function applyFreshAppData(data) {
   setCachedData(data);
   applyAppDataFromResponse(data);
   bracketGames = null;
+  leaderboardResultsByTeam = null;
   refreshVisibleTab();
 }
 
@@ -148,6 +152,7 @@ function applyAppDataFromResponse(data) {
     autoScores: !!data.autoScores,
     resultsByTeam: data.resultsByTeam || {},
   };
+  leaderboardResultsByTeam = null;
   (data.rosters || []).forEach((r) => {
     appData.rosters[r.playerId] = r.teamIds || [];
     appData.rosterLocked[r.playerId] = !!r.locked;
@@ -965,10 +970,15 @@ function renderTeamCard(team, selectedIds, locked) {
   `;
 }
 
+function getLeaderboardResultsByTeam() {
+  return leaderboardResultsByTeam || appData.resultsByTeam;
+}
+
 function renderTeamLeaderboardLabel(teamId) {
-  const label = formatTeamLeaderboardLabel(teamId, appData.resultsByTeam, TEAM_BY_ID);
+  const resultsByTeam = getLeaderboardResultsByTeam();
+  const label = formatTeamLeaderboardLabel(teamId, resultsByTeam, TEAM_BY_ID);
   if (!label) return '';
-  if (isTeamEliminated(appData.resultsByTeam[teamId])) {
+  if (isTeamEliminated(resultsByTeam[teamId])) {
     return `<span class="roster-team-eliminated">${escapeHtml(label)}</span>`;
   }
   return escapeHtml(label);
@@ -1061,6 +1071,27 @@ function renderLeaderboard() {
       </div>
     </div>
   `;
+
+  loadLeaderboardEliminationStatus();
+}
+
+async function loadLeaderboardEliminationStatus() {
+  if (leaderboardResultsByTeam || leaderboardResultsLoading) return;
+
+  leaderboardResultsLoading = true;
+  try {
+    const { groupsPayload, gamesPayload } = await fetchWorldCupApiData();
+    leaderboardResultsByTeam = enrichResultsWithElimination(
+      appData.resultsByTeam,
+      groupsPayload,
+      gamesPayload
+    );
+    if (activeTab === 'leaderboard') renderLeaderboard();
+  } catch {
+    // Keep showing leaderboard without elimination styling.
+  } finally {
+    leaderboardResultsLoading = false;
+  }
 }
 
 function renderPlayerRosterCard(p) {
